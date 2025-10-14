@@ -8,22 +8,28 @@
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Places API -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_KEY&libraries=places"></script>
 </head>
-<body class="bg-gray-100 flex flex-col items-center">
-  <h1 class="text-2xl font-bold m-4 text-blue-800">🚚 MM Courier Route Planner</h1>
+<body class="bg-gray-100 flex flex-col items-center p-2">
+  <h1 class="text-2xl font-bold m-4 text-blue-800 text-center">🚚 MM Courier Route Planner</h1>
 
-  <div id="map" class="w-11/12 h-[70vh] rounded-2xl shadow-lg"></div>
+  <div id="map" class="w-full max-w-xl h-72 sm:h-[70vh] rounded-2xl shadow-lg"></div>
 
-  <div class="mt-4 flex gap-2">
-    <input id="newAddress" type="text" placeholder="Enter address" class="border px-2 py-1 rounded w-64" />
-    <button id="addStop" class="bg-green-600 text-white px-4 py-1 rounded hover:bg-green-700">Add Stop</button>
-    <button id="loadRoute" class="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700">Load Route</button>
+  <div class="mt-4 flex flex-col sm:flex-row gap-2 items-center w-full max-w-xl">
+    <input id="newAddress" type="text" placeholder="Enter address" class="border px-2 py-1 rounded w-full sm:w-64" />
+    <button id="addStop" class="bg-green-600 text-white px-4 py-1 rounded hover:bg-green-700 w-full sm:w-auto">Add Stop</button>
+    <button id="loadRoute" class="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700 w-full sm:w-auto">Load Route</button>
   </div>
 
   <script>
     const API_URL = "https://mm-courier-route-planner.onrender.com";
 
+    // Initialize map
     const map = L.map("map").setView([-26.2041, 28.0473], 11);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap contributors",
@@ -78,12 +84,15 @@
 
         const coords = decodePolyline(data.routes[0].overview_polyline.points);
 
+        // Remove old polyline
         if (routeLine) map.removeLayer(routeLine);
         routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
 
-        markers.forEach(m => map.removeLayer(m));
+        // Remove old markers safely
+        markers.forEach(m => { if (map.hasLayer(m)) map.removeLayer(m); });
         markers = [];
 
+        // Add markers for stops
         stops.forEach((s, i) => {
           const marker = L.marker([s.lat, s.lon]).addTo(map);
           marker.bindPopup(`
@@ -107,29 +116,31 @@
 
     document.getElementById("loadRoute").addEventListener("click", loadRoute);
 
-    document.getElementById("addStop").addEventListener("click", async () => {
-      const address = document.getElementById("newAddress").value.trim();
-      if (!address) return alert("Please enter an address");
+    // Google Places Autocomplete
+    const input = document.getElementById("newAddress");
+    const autocomplete = new google.maps.places.Autocomplete(input);
+    autocomplete.setFields(["geometry", "formatted_address"]);
 
-      try {
-        const res = await fetch(`${API_URL}/geocode`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ address })
-        });
-        const data = await res.json();
-        if (!data.lat || !data.lng) return alert("Failed to geocode address");
+    autocomplete.addListener("place_changed", () => {
+      const place = autocomplete.getPlace();
+      if (!place.geometry) return alert("No details available for this address");
 
-        stops.push({ lat: data.lat, lon: data.lng });
-        document.getElementById("newAddress").value = "";
-        loadRoute();
-      } catch (err) {
-        console.error(err);
-        alert("Error adding stop");
-      }
+      const lat = place.geometry.location.lat();
+      const lon = place.geometry.location.lng();
+
+      stops.push({ lat, lon });
+      input.value = "";
+      loadRoute();
     });
 
-    // Initial route
+    // Optional: fallback Add Stop button (for manual address or offline)
+    document.getElementById("addStop").addEventListener("click", () => {
+      const val = input.value.trim();
+      if (!val) return alert("Enter a valid address");
+      alert("Please select an address from suggestions"); 
+    });
+
+    // Load initial route
     loadRoute();
   </script>
 </body>
