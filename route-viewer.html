@@ -16,8 +16,7 @@
   <div id="map" class="w-11/12 h-[70vh] rounded-2xl shadow-lg"></div>
 
   <div class="mt-4 flex gap-2">
-    <input id="newLat" type="text" placeholder="Latitude" class="border px-2 py-1 rounded" />
-    <input id="newLon" type="text" placeholder="Longitude" class="border px-2 py-1 rounded" />
+    <input id="newAddress" type="text" placeholder="Enter address" class="border px-2 py-1 rounded w-64" />
     <button id="addStop" class="bg-green-600 text-white px-4 py-1 rounded hover:bg-green-700">Add Stop</button>
     <button id="loadRoute" class="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700">Load Route</button>
   </div>
@@ -30,7 +29,7 @@
       attribution: "© OpenStreetMap contributors",
     }).addTo(map);
 
-    // Initial stops
+    // Initial stops (lat/lon)
     let stops = [
       { lat: -26.195246, lon: 28.034088 },
       { lat: -26.204103, lon: 28.047304 },
@@ -107,17 +106,25 @@
     // Event listeners
     document.getElementById("loadRoute").addEventListener("click", loadRoute);
 
-    document.getElementById("addStop").addEventListener("click", () => {
-      const lat = parseFloat(document.getElementById("newLat").value);
-      const lon = parseFloat(document.getElementById("newLon").value);
+    document.getElementById("addStop").addEventListener("click", async () => {
+      const address = document.getElementById("newAddress").value.trim();
+      if (!address) return alert("Please enter an address");
 
-      if (!isNaN(lat) && !isNaN(lon)) {
-        stops.push({ lat, lon });
-        loadRoute();
-        document.getElementById("newLat").value = "";
-        document.getElementById("newLon").value = "";
-      } else {
-        alert("Invalid coordinates");
+      try {
+        const res = await fetch("https://mm-courier-route-planner.onrender.com/geocode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address })
+        });
+        const data = await res.json();
+        if (!data.lat || !data.lng) return alert("Failed to geocode address");
+
+        stops.push({ lat: data.lat, lon: data.lng });
+        document.getElementById("newAddress").value = "";
+        loadRoute(); // re-optimize with new stop
+      } catch (err) {
+        console.error(err);
+        alert("Error adding stop");
       }
     });
   </script>
