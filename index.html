@@ -14,6 +14,13 @@
 
   <!-- Google Places API -->
   <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_KEY&libraries=places"></script>
+
+  <style>
+    /* Ensure autocomplete dropdown appears above map */
+    .pac-container {
+      z-index: 10000 !important;
+    }
+  </style>
 </head>
 <body class="bg-gray-100 flex flex-col items-center p-2">
   <h1 class="text-2xl font-bold m-4 text-blue-800 text-center">🚚 MM Courier Route Planner</h1>
@@ -29,7 +36,7 @@
   <script>
     const API_URL = "https://mm-courier-route-planner.onrender.com";
 
-    // Initialize map
+    // Initialize Leaflet map
     const map = L.map("map").setView([-26.2041, 28.0473], 11);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap contributors",
@@ -72,6 +79,7 @@
       return coordinates;
     }
 
+    // Load route from API
     async function loadRoute() {
       try {
         const res = await fetch(`${API_URL}/optimize`, {
@@ -80,19 +88,20 @@
           body: JSON.stringify({ stops })
         });
         const data = await res.json();
-        if (!data.routes) return alert("Failed to load route");
+
+        if (!data.routes) {
+          console.error(data);
+          return alert("Failed to load route. Check console.");
+        }
 
         const coords = decodePolyline(data.routes[0].overview_polyline.points);
 
-        // Remove old polyline
         if (routeLine) map.removeLayer(routeLine);
         routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
 
-        // Remove old markers safely
         markers.forEach(m => { if (map.hasLayer(m)) map.removeLayer(m); });
         markers = [];
 
-        // Add markers for stops
         stops.forEach((s, i) => {
           const marker = L.marker([s.lat, s.lon]).addTo(map);
           marker.bindPopup(`
@@ -133,14 +142,13 @@
       loadRoute();
     });
 
-    // Optional: fallback Add Stop button (for manual address or offline)
+    // Fallback Add Stop button
     document.getElementById("addStop").addEventListener("click", () => {
       const val = input.value.trim();
-      if (!val) return alert("Enter a valid address");
-      alert("Please select an address from suggestions"); 
+      if (!val) return alert("Please select an address from suggestions");
     });
 
-    // Load initial route
+    // Initial route
     loadRoute();
   </script>
 </body>
