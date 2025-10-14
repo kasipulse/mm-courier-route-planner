@@ -1,1 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MM Courier Route Planner</title>
 
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex flex-col items-center">
+  <h1 class="text-2xl font-bold m-4 text-blue-800">🚚 MM Courier Route Planner</h1>
+
+  <div id="map" class="w-11/12 h-[70vh] rounded-2xl shadow-lg"></div>
+
+  <div class="mt-4 flex gap-2">
+    <input id="newAddress" type="text" placeholder="Enter address" class="border px-2 py-1 rounded w-64" />
+    <button id="addStop" class="bg-green-600 text-white px-4 py-1 rounded hover:bg-green-700">Add Stop</button>
+    <button id="loadRoute" class="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700">Load Route</button>
+  </div>
+
+  <script>
+    const API_URL = "https://mm-courier-route-planner.onrender.com";
+
+    const map = L.map("map").setView([-26.2041, 28.0473], 11);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap contributors",
+    }).addTo(map);
+
+    let stops = [
+      { lat: -26.195246, lon: 28.034088 },
+      { lat: -26.204103, lon: 28.047304 },
+      { lat: -26.137863, lon: 28.035889 }
+    ];
+
+    let routeLine;
+    let markers = [];
+
+    function decodePolyline(str, precision = 5) {
+      let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
+      const factor = Math.pow(10, -precision);
+
+      while (index < str.length) {
+        byte = null; shift = 0; result = 0;
+        do {
+          byte = str.charCodeAt(index++) - 63;
+          result |= (byte & 0x1f) << shift;
+          shift += 5;
+        } while (byte >= 0x20);
+        let deltaLat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lat += deltaLat;
+
+        shift = 0; result = 0;
+        do {
+          byte = str.charCodeAt(index++) - 63;
+          result |= (byte & 0x1f) << shift;
+          shift += 5;
+        } while (byte >= 0x20);
+        let deltaLng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lng += deltaLng;
+
+        coordinates.push([lat * factor, lng * factor]);
+      }
+      return coordinates;
+    }
+
+    async function loadRoute() {
+      try {
+        const res = await fetch(`${API_URL}/optimize`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stops })
+        });
+        const data = await res.json();
+        if (!data.routes) return alert("Failed to load route");
+
+        const coords = decodePolyline(data.routes[0].overview_polyline.points);
+
+        if (routeLine) map.removeLayer(routeLine);
+        routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
+
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+
+        stops.forEach((s, i) => {
+          const marker = L.marker([s.lat, s.lon]).addTo(map);
+          marker.bindPopup(`
+            Stop ${i + 1} <br/>
+            <button onclick="removeStop(${i})" class="bg-red-500 text-white px-2 py-1 rounded mt-1">Remove</button>
+          `);
+          markers.push(marker);
+        });
+
+        map.fitBounds(routeLine.getBounds());
+      } catch (err) {
+        console.error(err);
+        alert("Error optimizing route. Check console.");
+      }
+    }
+
+    window.removeStop = (index) => {
+      stops.splice(index, 1);
+      loadRoute();
+    };
+
+    document.getElementById("loadRoute").addEventListener("click", loadRoute);
+
+    document.getElementById("addStop").addEventListener("click", async () => {
+      const address = document.getElementById("newAddress").value.trim();
+      if (!address) return alert("Please enter an address");
+
+      try {
+        const res = await fetch(`${API_URL}/geocode`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address })
+        });
+        const data = await res.json();
+        if (!data.lat || !data.lng) return alert("Failed to geocode address");
+
+        stops.push({ lat: data.lat, lon: data.lng });
+        document.getElementById("newAddress").value = "";
+        loadRoute();
+      } catch (err) {
+        console.error(err);
+        alert("Error adding stop");
+      }
+    });
+
+    // Initial route
+    loadRoute();
+  </script>
+</body>
+</html>
