@@ -1,8 +1,9 @@
 {
   "name": "route-planner",
   "version": "1.0.0",
-  "description": "Delivery route planner backend",
+  "description": "Cloud-based delivery route planner backend",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
