@@ -50,6 +50,30 @@ app.post("/optimize", async (req, res) => {
   }
 });
 
+// ----------------------------
+// POST /geocode endpoint
+// ----------------------------
+app.post("/geocode", async (req, res) => {
+  try {
+    const { address } = req.body;
+    if (!address) return res.status(400).json({ error: "Address is required" });
+
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${process.env.GOOGLE_MAPS_KEY}`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.status !== "OK") {
+      return res.status(400).json({ error: "Geocoding failed", details: data });
+    }
+
+    const location = data.results[0].geometry.location; // { lat, lng }
+    res.json(location);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Geocoding error" });
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
