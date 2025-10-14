@@ -1,1 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Route Planner Map</title>
 
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet/dist/leaflet.css"
+  />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 flex flex-col items-center">
+  <h1 class="text-2xl font-bold m-4 text-blue-800">🚚 Route Planner Map</h1>
+
+  <div id="map" class="w-11/12 h-[70vh] rounded-2xl shadow-lg"></div>
+
+  <button
+    id="loadRoute"
+    class="mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
+  >
+    Load Optimized Route
+  </button>
+
+  <script>
+    const map = L.map("map").setView([-26.2041, 28.0473], 11);
+
+    // OpenStreetMap tiles
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap contributors",
+    }).addTo(map);
+
+    // Example stops
+    const stops = [
+      { lat: -26.195246, lon: 28.034088 },
+      { lat: -26.204103, lon: 28.047304 },
+      { lat: -26.137863, lon: 28.035889 }
+    ];
+
+    document.getElementById("loadRoute").addEventListener("click", async () => {
+      const res = await fetch("https://YOUR-APP-NAME.onrender.com/optimize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stops })
+      });
+
+      const data = await res.json();
+
+      // Google returns encoded polyline
+      const encodedPolyline = data.routes[0].overview_polyline.points;
+
+      // Decode polyline using simple JS function
+      function decodePolyline(str, precision) {
+        let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
+        precision = Math.pow(10, -(precision || 5));
+
+        while (index < str.length) {
+          byte = null; shift = 0; result = 0;
+          do {
+            byte = str.charCodeAt(index++) - 63;
+            result |= (byte & 0x1f) << shift;
+            shift += 5;
+          } while (byte >= 0x20);
+          let deltaLat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+          lat += deltaLat;
+
+          shift = 0; result = 0;
+          do {
+            byte = str.charCodeAt(index++) - 63;
+            result |= (byte & 0x1f) << shift;
+            shift += 5;
+          } while (byte >= 0x20);
+          let deltaLng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+          lng += deltaLng;
+
+          coordinates.push([lat * precision, lng * precision]);
+        }
+        return coordinates;
+      }
+
+      const routeCoords = decodePolyline(encodedPolyline);
+
+      // Draw route
+      L.polyline(routeCoords, { color: "blue" }).addTo(map);
+
+      // Draw stop markers
+      stops.forEach((s, i) => {
+        L.marker([s.lat, s.lon]).addTo(map).bindPopup(`Stop ${i + 1}`);
+      });
+
+      map.fitBounds(L.polyline(routeCoords).getBounds());
+    });
+  </script>
+</body>
+</html>
