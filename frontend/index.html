@@ -4,39 +4,33 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MM Courier Route Planner</title>
+
+  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    #map { height: 70vh; width: 95%; max-width: 900px; }
-  </style>
+
+  <!-- Google Places API for autocomplete -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_KEY&libraries=places"></script>
 </head>
+<body class="bg-gray-100 flex flex-col items-center min-h-screen p-2">
+  <h1 class="text-2xl font-bold my-4 text-blue-800 text-center">🚚 MM Courier Route Planner</h1>
 
-<body class="bg-gray-100 flex flex-col items-center min-h-screen">
-  <h1 class="text-2xl font-bold m-4 text-blue-800 text-center">🚚 MM Courier Route Planner</h1>
+  <div id="map" class="w-full max-w-4xl h-[60vh] rounded-2xl shadow-lg mb-4"></div>
 
-  <div id="map" class="rounded-2xl shadow-lg"></div>
-
-  <div class="mt-4 w-full max-w-xl flex flex-wrap justify-center gap-2 px-2">
-    <input
-      id="newAddress"
-      type="text"
-      placeholder="Enter address"
-      class="border px-3 py-2 rounded w-full sm:w-64 text-sm"
-    />
-    <button id="addStop" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm">
-      Add Stop
-    </button>
-    <button id="loadRoute" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm">
-      Load Route
-    </button>
+  <div class="flex flex-col md:flex-row gap-2 w-full max-w-4xl mb-4">
+    <input id="newAddress" type="text" placeholder="Enter address" class="flex-1 border px-2 py-1 rounded w-full md:w-auto" />
+    <button id="addStop" class="bg-green-600 text-white px-4 py-1 rounded hover:bg-green-700">Add Stop</button>
+    <button id="loadRoute" class="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700">Load Route</button>
   </div>
 
-  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_KEY&libraries=places"></script>
   <script>
-    const API_URL = "https://mm-courier-route-planner-api.onrender.com"; // backend URL
-    const map = L.map("map").setView([-26.2041, 28.0473], 11);
+    const API_URL = "https://mm-courier-route-planner-api.onrender.com"; // replace with your backend URL
 
+    // Initialize Leaflet map
+    const map = L.map("map").setView([-26.2041, 28.0473], 11);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap contributors",
     }).addTo(map);
@@ -50,86 +44,96 @@
     let routeLine;
     let markers = [];
 
-    // Initialize Google Places Autocomplete
-    const input = document.getElementById("newAddress");
-    const autocomplete = new google.maps.places.Autocomplete(input, { types: ["geocode"] });
-
-    autocomplete.addListener("place_changed", () => {
-      const place = autocomplete.getPlace();
-      if (!place.geometry) return;
-      input.dataset.lat = place.geometry.location.lat();
-      input.dataset.lng = place.geometry.location.lng();
-    });
-
+    // Decode Google polyline
     function decodePolyline(str, precision = 5) {
-      let index = 0, lat = 0, lng = 0, coordinates = [];
+      let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
       const factor = Math.pow(10, -precision);
       while (index < str.length) {
-        let result = 1, shift = 0, byte;
-        do { byte = str.charCodeAt(index++) - 63 - 1; result += byte << shift; shift += 5; } while (byte >= 0x1f);
-        lat += (result & 1 ? ~(result >> 1) : (result >> 1));
-        result = 1; shift = 0;
-        do { byte = str.charCodeAt(index++) - 63 - 1; result += byte << shift; shift += 5; } while (byte >= 0x1f);
-        lng += (result & 1 ? ~(result >> 1) : (result >> 1));
+        byte = null; shift = 0; result = 0;
+        do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+        let deltaLat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lat += deltaLat;
+        shift = 0; result = 0;
+        do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+        let deltaLng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lng += deltaLng;
         coordinates.push([lat * factor, lng * factor]);
       }
       return coordinates;
     }
 
-    function renderRoute(data) {
-      const coords = decodePolyline(data.routes[0].overview_polyline.points);
-
-      if (routeLine) map.removeLayer(routeLine);
-      routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
-
-      markers.forEach(m => map.removeLayer(m));
-      markers = [];
-      stops.forEach((s, i) => {
-        const marker = L.marker([s.lat, s.lon]).addTo(map);
-        marker.bindPopup(`Stop ${i + 1}`);
-        markers.push(marker);
-      });
-
-      map.fitBounds(routeLine.getBounds());
-    }
-
     async function loadRoute() {
       try {
-        if (stops.length < 2) return alert("At least two stops are required.");
-
         const res = await fetch(`${API_URL}/optimize`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ stops }),
+          body: JSON.stringify({ stops })
         });
         const data = await res.json();
+        if (!data.routes) return alert("Failed to load route");
 
-        if (!data.routes) {
-          console.error(data);
-          return alert("Failed to load route. Check console for details.");
-        }
+        const coords = decodePolyline(data.routes[0].overview_polyline.points);
 
-        renderRoute(data);
+        if (routeLine) map.removeLayer(routeLine);
+        routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
+
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+
+        stops.forEach((s, i) => {
+          const marker = L.marker([s.lat, s.lon]).addTo(map);
+          marker.bindPopup(`Stop ${i + 1} <br/><button onclick="removeStop(${i})" class="bg-red-500 text-white px-2 py-1 rounded mt-1">Remove</button>`);
+          markers.push(marker);
+        });
+
+        map.fitBounds(routeLine.getBounds());
       } catch (err) {
         console.error(err);
         alert("Error optimizing route. Check console.");
       }
     }
 
-    document.getElementById("loadRoute").addEventListener("click", loadRoute);
+    window.removeStop = (index) => {
+      stops.splice(index, 1);
+      loadRoute();
+    };
 
-    document.getElementById("addStop").addEventListener("click", () => {
-      const lat = parseFloat(input.dataset.lat);
-      const lng = parseFloat(input.dataset.lng);
-      if (!lat || !lng) return alert("Please select a valid address from suggestions.");
+    // Google Places autocomplete
+    const input = document.getElementById("newAddress");
+    const autocomplete = new google.maps.places.Autocomplete(input, { types: ["geocode"] });
+    autocomplete.addListener("place_changed", async () => {
+      const place = autocomplete.getPlace();
+      if (!place.geometry) return alert("No details available for this address");
 
-      stops.push({ lat, lon: lng });
+      stops.push({ lat: place.geometry.location.lat(), lon: place.geometry.location.lng() });
       input.value = "";
-      delete input.dataset.lat;
-      delete input.dataset.lng;
+      loadRoute();
     });
 
-    // Initial render
+    document.getElementById("loadRoute").addEventListener("click", loadRoute);
+    document.getElementById("addStop").addEventListener("click", async () => {
+      const address = input.value.trim();
+      if (!address) return alert("Please enter an address");
+
+      try {
+        const res = await fetch(`${API_URL}/geocode`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address })
+        });
+        const data = await res.json();
+        if (!data.lat || !data.lng) return alert("Failed to geocode address");
+
+        stops.push({ lat: data.lat, lon: data.lng });
+        input.value = "";
+        loadRoute();
+      } catch (err) {
+        console.error(err);
+        alert("Error adding stop");
+      }
+    });
+
+    // Load initial route
     loadRoute();
   </script>
 </body>
