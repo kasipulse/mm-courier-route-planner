@@ -1,17 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>MM Courier Route Planner</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 
-<!-- Google Places API (replace YOUR_KEY with your key) -->
+<!-- Google Places API -->
 <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_KEY&libraries=places"></script>
 </head>
-<body class="flex flex-col items-center min-h-screen bg-gray-100">
+<body class="bg-gray-100 flex flex-col items-center min-h-screen">
 <h1 class="text-2xl font-bold m-4 text-blue-800">🚚 MM Courier Route Planner</h1>
 
 <div id="map" class="w-11/12 h-[70vh] rounded-2xl shadow-lg"></div>
@@ -38,52 +38,48 @@ let stops = [
 let markers = [];
 let routeLine;
 
-// Initialize Google Places Autocomplete
+// Google Autocomplete
 const autocomplete = new google.maps.places.Autocomplete(
-  document.getElementById("addressInput"),
-  { types: ["geocode"] }
+  document.getElementById("addressInput"), { types: ["geocode"] }
 );
 
 function decodePolyline(str) {
-  let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
-  const factor = 1e-5;
-  while (index < str.length) {
-    byte = null; shift = 0; result = 0;
-    do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
-    let deltaLat = ((result & 1) ? ~(result >> 1) : (result >> 1)); lat += deltaLat;
-    shift = 0; result = 0;
-    do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
-    let deltaLng = ((result & 1) ? ~(result >> 1) : (result >> 1)); lng += deltaLng;
-    coordinates.push([lat*factor, lng*factor]);
+  let index=0,lat=0,lng=0,coords=[],shift=0,result=0,byte=null,factor=1e-5;
+  while(index<str.length){
+    byte=null;shift=0;result=0;
+    do{ byte=str.charCodeAt(index++)-63; result|=(byte&0x1f)<<shift; shift+=5 }while(byte>=0x20);
+    let dlat=((result&1)?~(result>>1):(result>>1)); lat+=dlat;
+    shift=0;result=0;
+    do{ byte=str.charCodeAt(index++)-63; result|=(byte&0x1f)<<shift; shift+=5 }while(byte>=0x20);
+    let dlng=((result&1)?~(result>>1):(result>>1)); lng+=dlng;
+    coords.push([lat*factor,lng*factor]);
   }
-  return coordinates;
+  return coords;
 }
 
-async function loadRoute() {
+async function loadRoute(){
   try {
     const res = await fetch(`${API_URL}/optimize`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
       body: JSON.stringify({ stops })
     });
     const data = await res.json();
-    if (!data.routes) return alert("Failed to load route");
+    if(!data.routes) return alert("Failed to load route");
 
     const coords = decodePolyline(data.routes[0].overview_polyline.points);
-    if (routeLine) map.removeLayer(routeLine);
-    routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
+    if(routeLine) map.removeLayer(routeLine);
+    routeLine = L.polyline(coords,{ color:"blue" }).addTo(map);
 
-    markers.forEach(m => map.removeLayer(m));
-    markers = [];
-
-    stops.forEach((s,i) => {
-      const marker = L.marker([s.lat,s.lon]).addTo(map);
+    markers.forEach(m=>map.removeLayer(m));
+    markers=[];
+    stops.forEach((s,i)=>{
+      const marker=L.marker([s.lat,s.lon]).addTo(map);
       marker.bindPopup(`Stop ${i+1}`);
       markers.push(marker);
     });
-
     map.fitBounds(routeLine.getBounds());
-  } catch(err) {
+  } catch(err){
     console.error(err);
     alert("Error optimizing route. Check console.");
   }
@@ -91,20 +87,16 @@ async function loadRoute() {
 
 document.getElementById("loadRoute").addEventListener("click", loadRoute);
 
-document.getElementById("addStop").addEventListener("click", () => {
-  const place = autocomplete.getPlace();
-  if (!place || !place.geometry) return alert("Please select a valid address from suggestions");
+document.getElementById("addStop").addEventListener("click",()=>{
+  const place=autocomplete.getPlace();
+  if(!place||!place.geometry) return alert("Select a valid address from suggestions");
 
-  const lat = place.geometry.location.lat();
-  const lon = place.geometry.location.lng();
-  stops.push({ lat, lon });
-  document.getElementById("addressInput").value = "";
+  stops.push({
+    lat: place.geometry.location.lat(),
+    lon: place.geometry.location.lng()
+  });
+  document.getElementById("addressInput").value="";
   loadRoute();
-});
-
-// Optional: Trigger autocomplete when typing
-document.getElementById("addressInput").addEventListener("keydown", () => {
-  google.maps.event.trigger(autocomplete, 'place_changed');
 });
 
 // Initial route
