@@ -1,153 +1,172 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MM Courier Route Planner</title>
-  <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Google Maps Places API -->
-  <script
-    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete"
-    defer
-  ></script>
-  <style>
-    html, body {
-      height: 100%;
-      margin: 0;
-    }
-    #map {
-      height: 70vh; /* 70% of viewport height */
-      width: 95%;
-      max-width: 600px;
-    }
-  </style>
-</head>
-<body class="bg-gray-100 flex flex-col items-center justify-start min-h-screen">
+<script>
+const API_URL = "https://mm-courier-route-planner.onrender.com";
 
-  <h1 class="text-2xl font-bold mt-4 mb-2 text-blue-800 text-center">🚚 MM Courier Route Planner</h1>
+// Initialize Leaflet map
+const map = L.map("map").setView([-26.2041, 28.0473], 11);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "© OpenStreetMap contributors",
+}).addTo(map);
+map.invalidateSize(); // Fix half map render
 
-  <div id="map" class="rounded-2xl shadow-lg"></div>
+let stops = [];
+let markers = [];
+let routeLine;
+let currentStopIndex = 0; // track which stop the driver is on
 
-  <div class="mt-4 flex flex-col sm:flex-row flex-wrap justify-center gap-2 w-11/12 max-w-md">
-    <input id="newAddress" type="text" placeholder="Enter address" class="border px-2 py-2 rounded w-full sm:w-64" />
-    <button id="addStop" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Add Stop</button>
-    <button id="loadRoute" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Load Route</button>
-  </div>
+// ----------------------
+// Google Places Autocomplete
+// ----------------------
+let autocomplete;
+function initAutocomplete() {
+  const input = document.getElementById("newAddress");
+  autocomplete = new google.maps.places.Autocomplete(input, { types: ["geocode"] });
+}
 
-  <script>
-    const API_URL = "https://mm-courier-route-planner.onrender.com";
+// ----------------------
+// Add stop from autocomplete
+// ----------------------
+document.getElementById("addStop").addEventListener("click", () => {
+  const place = autocomplete.getPlace();
+  if (!place || !place.geometry) {
+    alert("Please select a valid address from suggestions");
+    return;
+  }
 
-    // Initialize Leaflet map
-    const map = L.map("map").setView([-26.2041, 28.0473], 11);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "© OpenStreetMap contributors",
-    }).addTo(map);
-    map.invalidateSize(); // Fix half map render
+  const lat = place.geometry.location.lat();
+  const lon = place.geometry.location.lng();
+  stops.push({ lat, lon });
 
-    let stops = [];
-    let markers = [];
-    let routeLine;
+  const marker = L.marker([lat, lon]).addTo(map);
+  marker.bindPopup(`Stop ${stops.length}`).openPopup();
+  markers.push(marker);
 
-    // ----------------------
-    // Google Places Autocomplete
-    // ----------------------
-    let autocomplete;
-    function initAutocomplete() {
-      const input = document.getElementById("newAddress");
-      autocomplete = new google.maps.places.Autocomplete(input, { types: ["geocode"] });
-    }
+  map.setView([lat, lon], 12);
+  document.getElementById("newAddress").value = "";
+});
 
-    // ----------------------
-    // Add stop from autocomplete
-    // ----------------------
-    document.getElementById("addStop").addEventListener("click", () => {
-      const place = autocomplete.getPlace();
-      if (!place || !place.geometry) {
-        alert("Please select a valid address from suggestions");
-        return;
-      }
+// ----------------------
+// Load optimized route
+// ----------------------
+async function loadRoute() {
+  if (stops.length < 2) {
+    alert("Please add at least two stops");
+    return;
+  }
 
-      const lat = place.geometry.location.lat();
-      const lon = place.geometry.location.lng();
-      stops.push({ lat, lon });
-
-      const marker = L.marker([lat, lon]).addTo(map);
-      marker.bindPopup(`Stop ${stops.length}`).openPopup();
-      markers.push(marker);
-
-      map.setView([lat, lon], 12);
-      document.getElementById("newAddress").value = "";
+  try {
+    const res = await fetch(`${API_URL}/optimize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stops }),
     });
 
-    // ----------------------
-    // Load optimized route
-    // ----------------------
-    async function loadRoute() {
-      if (stops.length < 2) {
-        alert("Please add at least two stops");
-        return;
-      }
+    if (!res.ok) throw new Error("Failed to fetch route");
 
-      try {
-        const res = await fetch(`${API_URL}/optimize`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ stops }),
-        });
+    const data = await res.json();
+    if (!data.routes || data.routes.length === 0) throw new Error("No route found");
 
-        if (!res.ok) throw new Error("Failed to fetch route");
+    const coords = decodePolyline(data.routes[0].overview_polyline.points);
 
-        const data = await res.json();
-        if (!data.routes || data.routes.length === 0) throw new Error("No route found");
+    if (routeLine) map.removeLayer(routeLine);
+    routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
 
-        const coords = decodePolyline(data.routes[0].overview_polyline.points);
+    map.fitBounds(routeLine.getBounds());
 
-        if (routeLine) map.removeLayer(routeLine);
-        routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
+    currentStopIndex = 0; // reset driver progress
+    highlightCurrentStop();
+  } catch (err) {
+    console.error(err);
+    alert("Error optimizing route. Check console.");
+  }
+}
 
-        map.fitBounds(routeLine.getBounds());
-      } catch (err) {
-        console.error(err);
-        alert("Error optimizing route. Check console.");
-      }
+document.getElementById("loadRoute").addEventListener("click", loadRoute);
+
+// ----------------------
+// Highlight current stop
+// ----------------------
+function highlightCurrentStop() {
+  markers.forEach((m, i) => {
+    if (i === currentStopIndex) m.setIcon(new L.Icon.Default({ className: "current-stop" }));
+  });
+}
+
+// ----------------------
+// Mark stop delivered & go to next
+// ----------------------
+async function markDeliveredNext() {
+  if (currentStopIndex >= stops.length) {
+    alert("All stops completed!");
+    return;
+  }
+
+  const stopId = currentStopIndex + 1;
+  try {
+    const res = await fetch(`${API_URL}/mark-delivered`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stopId }),
+    });
+    const data = await res.json();
+    console.log(data);
+
+    alert(`Stop ${stopId} delivered!`);
+
+    // Move to next stop
+    currentStopIndex++;
+    if (currentStopIndex < stops.length) {
+      const next = stops[currentStopIndex];
+      map.setView([next.lat, next.lon], 15);
+
+      // Open Google Maps navigation
+      const url = `https://www.google.com/maps/dir/?api=1&destination=${next.lat},${next.lon}&travelmode=driving`;
+      window.open(url, "_blank");
+    } else {
+      alert("All stops completed!");
     }
+  } catch (err) {
+    console.error(err);
+    alert("Failed to mark stop delivered");
+  }
+}
 
-    document.getElementById("loadRoute").addEventListener("click", loadRoute);
+// ----------------------
+// Decode polyline from Google
+// ----------------------
+function decodePolyline(str, precision = 5) {
+  let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
+  const factor = Math.pow(10, -precision);
 
-    // ----------------------
-    // Decode polyline from Google
-    // ----------------------
-    function decodePolyline(str, precision = 5) {
-      let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
-      const factor = Math.pow(10, -precision);
+  while (index < str.length) {
+    byte = null; shift = 0; result = 0;
+    do {
+      byte = str.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    const deltaLat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lat += deltaLat;
 
-      while (index < str.length) {
-        byte = null; shift = 0; result = 0;
-        do {
-          byte = str.charCodeAt(index++) - 63;
-          result |= (byte & 0x1f) << shift;
-          shift += 5;
-        } while (byte >= 0x20);
-        const deltaLat = ((result & 1) ? ~(result >> 1) : (result >> 1));
-        lat += deltaLat;
+    shift = 0; result = 0;
+    do {
+      byte = str.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    const deltaLng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lng += deltaLng;
 
-        shift = 0; result = 0;
-        do {
-          byte = str.charCodeAt(index++) - 63;
-          result |= (byte & 0x1f) << shift;
-          shift += 5;
-        } while (byte >= 0x20);
-        const deltaLng = ((result & 1) ? ~(result >> 1) : (result >> 1));
-        lng += deltaLng;
+    coordinates.push([lat * factor, lng * factor]);
+  }
+  return coordinates;
+}
 
-        coordinates.push([lat * factor, lng * factor]);
-      }
-      return coordinates;
-    }
-  </script>
-</body>
-</html>
+// ----------------------
+// Add "Mark Delivered" button dynamically
+// ----------------------
+const btn = document.createElement("button");
+btn.textContent = "Mark Delivered & Next Stop";
+btn.className = "bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700 mt-4";
+btn.onclick = markDeliveredNext;
+document.body.appendChild(btn);
+</script>
