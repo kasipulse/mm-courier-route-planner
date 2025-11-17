@@ -1,6 +1,5 @@
 import express from "express";
 import dotenv from "dotenv";
-import cors from "cors";
 import fetch from "node-fetch";
 
 dotenv.config();
@@ -8,36 +7,23 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ----------------------
-// CORS - allow frontend
-// ----------------------
-const allowedOrigins = [
-  "https://mm-courier-route-planner-ui.onrender.com",
-  "http://localhost:5173"
-];
-
-app.use(cors({
-  origin: (origin, callback) => {
-    // allow requests with no origin (like curl, Postman)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("CORS not allowed"));
-    }
-  },
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
-  credentials: true, // allow cookies if needed
-}));
-
-// Must handle OPTIONS requests for preflight
-app.options("*", cors());
-
 app.use(express.json());
 
 // ----------------------
-// Health check
+// Temporary: Allow all origins (for testing only)
+// ----------------------
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*"); // allow all domains
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200); // respond OK to preflight
+  }
+  next();
+});
+
+// ----------------------
+// Health Check
 // ----------------------
 app.get("/", (req, res) => {
   res.json({ message: "Route Planner API running 🚀" });
@@ -83,7 +69,6 @@ app.post("/optimize", async (req, res) => {
   }
 });
 
-// ----------------------
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
 });
