@@ -4,81 +4,84 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MM Courier Route Planner</title>
-
-  <!-- Tailwind CSS (note: for production, consider compiling via CLI) -->
-  <script src="https://cdn.tailwindcss.com" defer></script>
-
   <!-- Leaflet CSS -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet/dist/leaflet.css"
-  />
-
-</head>
-<body class="bg-gray-100 flex flex-col items-center min-h-screen">
-
-  <h1 class="text-2xl font-bold m-4 text-blue-800">🚚 MM Courier Route Planner</h1>
-
-  <div id="map" class="w-11/12 h-[70vh] rounded-2xl shadow-lg"></div>
-
-  <div class="mt-4 flex flex-wrap justify-center gap-2">
-    <input id="newAddress" type="text" placeholder="Enter address" class="border px-2 py-1 rounded w-64" />
-    <button id="addStop" class="bg-green-600 text-white px-4 py-1 rounded hover:bg-green-700">Add Stop</button>
-    <button id="loadRoute" class="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700">Load Route</button>
-  </div>
-
-  <!-- Leaflet JS -->
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js" defer></script>
-
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
   <!-- Google Maps Places API -->
   <script
     src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete"
     defer
   ></script>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+    #map {
+      height: 70vh; /* 70% of viewport height */
+      width: 95%;
+      max-width: 600px;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 flex flex-col items-center justify-start min-h-screen">
 
-  <script defer>
+  <h1 class="text-2xl font-bold mt-4 mb-2 text-blue-800 text-center">🚚 MM Courier Route Planner</h1>
+
+  <div id="map" class="rounded-2xl shadow-lg"></div>
+
+  <div class="mt-4 flex flex-col sm:flex-row flex-wrap justify-center gap-2 w-11/12 max-w-md">
+    <input id="newAddress" type="text" placeholder="Enter address" class="border px-2 py-2 rounded w-full sm:w-64" />
+    <button id="addStop" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Add Stop</button>
+    <button id="loadRoute" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Load Route</button>
+  </div>
+
+  <script>
     const API_URL = "https://mm-courier-route-planner.onrender.com";
 
-    let map, stops = [], markers = [], routeLine;
+    // Initialize Leaflet map
+    const map = L.map("map").setView([-26.2041, 28.0473], 11);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap contributors",
+    }).addTo(map);
+    map.invalidateSize(); // Fix half map render
+
+    let stops = [];
+    let markers = [];
+    let routeLine;
+
+    // ----------------------
+    // Google Places Autocomplete
+    // ----------------------
     let autocomplete;
-
-    // ----------------------
-    // Initialize Map & Autocomplete after window loads
-    // ----------------------
-    window.onload = function() {
-      // Initialize Leaflet Map
-      map = L.map("map").setView([-26.2041, 28.0473], 11);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "© OpenStreetMap contributors",
-      }).addTo(map);
-
-      // Initialize Google Places Autocomplete
+    function initAutocomplete() {
       const input = document.getElementById("newAddress");
       autocomplete = new google.maps.places.Autocomplete(input, { types: ["geocode"] });
+    }
 
-      // Add stop event
-      document.getElementById("addStop").addEventListener("click", () => {
-        const place = autocomplete.getPlace();
-        if (!place || !place.geometry) {
-          alert("Please select a valid address from suggestions");
-          return;
-        }
+    // ----------------------
+    // Add stop from autocomplete
+    // ----------------------
+    document.getElementById("addStop").addEventListener("click", () => {
+      const place = autocomplete.getPlace();
+      if (!place || !place.geometry) {
+        alert("Please select a valid address from suggestions");
+        return;
+      }
 
-        const lat = place.geometry.location.lat();
-        const lon = place.geometry.location.lng();
-        stops.push({ lat, lon });
+      const lat = place.geometry.location.lat();
+      const lon = place.geometry.location.lng();
+      stops.push({ lat, lon });
 
-        const marker = L.marker([lat, lon]).addTo(map);
-        marker.bindPopup(`Stop ${stops.length}`).openPopup();
-        markers.push(marker);
+      const marker = L.marker([lat, lon]).addTo(map);
+      marker.bindPopup(`Stop ${stops.length}`).openPopup();
+      markers.push(marker);
 
-        map.setView([lat, lon], 12);
-        document.getElementById("newAddress").value = "";
-      });
-
-      // Load Route event
-      document.getElementById("loadRoute").addEventListener("click", loadRoute);
-    };
+      map.setView([lat, lon], 12);
+      document.getElementById("newAddress").value = "";
+    });
 
     // ----------------------
     // Load optimized route
@@ -108,10 +111,12 @@
 
         map.fitBounds(routeLine.getBounds());
       } catch (err) {
-        console.error("Failed to load route:", err);
+        console.error(err);
         alert("Error optimizing route. Check console.");
       }
     }
+
+    document.getElementById("loadRoute").addEventListener("click", loadRoute);
 
     // ----------------------
     // Decode polyline from Google
@@ -143,14 +148,6 @@
       }
       return coordinates;
     }
-
-    // ----------------------
-    // Google Maps Autocomplete callback
-    // ----------------------
-    function initAutocomplete() {
-      console.log("Google Places API loaded ✅");
-    }
-
   </script>
 </body>
 </html>
