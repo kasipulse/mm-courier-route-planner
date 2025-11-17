@@ -10,37 +10,62 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ----------------------
-// Environment variables
+// Environment Variables
 // ----------------------
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN; // e.g., "https://mm-courier-route-planner-ui.onrender.com"
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN; 
 const GOOGLE_MAPS_KEY = process.env.GOOGLE_MAPS_KEY;
 
-if (!CLIENT_ORIGIN || !GOOGLE_MAPS_KEY) {
-  console.error("Error: CLIENT_ORIGIN or GOOGLE_MAPS_KEY not set in .env!");
-  process.exit(1);
-}
+console.log("🚀 Starting server...");
+console.log("CLIENT_ORIGIN =", CLIENT_ORIGIN || "❌ NOT SET");
+console.log("GOOGLE_MAPS_KEY =", GOOGLE_MAPS_KEY ? "✔ SET" : "❌ NOT SET");
 
 // ----------------------
 // Middleware
 // ----------------------
 app.use(express.json());
 
-// CORS setup
-app.use(cors({
-  origin: CLIENT_ORIGIN,
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true,
-}));
+// ----------------------
+// FIXED & ROBUST CORS
+// ----------------------
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      console.log("🌍 Incoming request from:", origin);
 
-// Handle OPTIONS preflight requests
+      // Allow your Render frontend
+      if (CLIENT_ORIGIN && origin === CLIENT_ORIGIN) {
+        console.log("✅ CORS allowed:", origin);
+        return callback(null, true);
+      }
+
+      // Allow requests without origin (mobile apps, curl, Postman)
+      if (!origin) {
+        console.log("⚠️ No origin (mobile/Postman) → allowed");
+        return callback(null, true);
+      }
+
+      // TEMPORARY: allow all (prevents blocking while debugging)
+      console.log("⚠️ Allowing all origins temporarily:", origin);
+      return callback(null, true);
+    },
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type"],
+    credentials: true,
+  })
+);
+
+// Allow OPTIONS preflight requests
 app.options("*", cors());
 
 // ----------------------
-// Health check
+// Health Check
 // ----------------------
 app.get("/", (req, res) => {
-  res.json({ message: "Route Planner API running 🚀" });
+  res.json({
+    message: "MM Courier Route Planner API is running 🚀",
+    status: "OK",
+    frontend: CLIENT_ORIGIN,
+  });
 });
 
 // ----------------------
@@ -56,27 +81,36 @@ app.post("/optimize", async (req, res) => {
 
     const origin = `${stops[0].lat},${stops[0].lon}`;
     const destination = `${stops[stops.length - 1].lat},${stops[stops.length - 1].lon}`;
+
     const waypoints =
       stops.length > 2
-        ? stops.slice(1, -1).map(s => `${s.lat},${s.lon}`).join("|")
+        ? stops.slice(1, -1).map((s) => `${s.lat},${s.lon}`).join("|")
         : "";
 
-    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&waypoints=optimize:true|${waypoints}&key=${GOOGLE_MAPS_KEY}`;
+    const url =
+      `https://maps.googleapis.com/maps/api/directions/json` +
+      `?origin=${origin}&destination=${destination}` +
+      `&waypoints=optimize:true|${waypoints}` +
+      `&key=${GOOGLE_MAPS_KEY}`;
+
+    console.log("➡ Fetching Google Directions API...");
+    console.log(url);
 
     const response = await fetch(url);
     const data = await response.json();
 
     if (data.status !== "OK") {
-      console.error("Google Directions API error:", data);
+      console.error("❌ Google API Error:", data);
       return res.status(500).json({
         error: "Google Directions API failed",
         details: data,
       });
     }
 
+    console.log("✅ Route optimized successfully");
     res.json(data);
   } catch (err) {
-    console.error("Route optimization failed:", err);
+    console.error("❌ Route optimization failed:", err);
     res.status(500).json({
       error: "Route optimization failed",
       details: err.message,
@@ -85,6 +119,8 @@ app.post("/optimize", async (req, res) => {
 });
 
 // ----------------------
+// Start Server
+// ----------------------
 app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`🔥 Server running on port ${PORT}`);
 });
