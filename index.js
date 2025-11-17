@@ -9,26 +9,30 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ----------------------
-// CORS: allow only frontend UI
+// CORS - allow your UI domain
 // ----------------------
 app.use(
   cors({
-    origin: [
-      "https://mm-courier-route-planner-ui.onrender.com",
-      "http://localhost:5173"
-    ],
-    methods: ["GET", "POST"],
+    origin: (origin, callback) => {
+      const allowed = [
+        "https://mm-courier-route-planner-ui.onrender.com",
+        "http://localhost:5173"
+      ];
+      if (!origin || allowed.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type"],
   })
 );
 
-// ----------------------
-// JSON middleware
-// ----------------------
 app.use(express.json());
 
 // ----------------------
-// Health Check
+// Health check
 // ----------------------
 app.get("/", (req, res) => {
   res.json({ message: "Route Planner API running 🚀" });
@@ -41,9 +45,8 @@ app.post("/optimize", async (req, res) => {
   try {
     const { stops } = req.body;
 
-    if (!stops || stops.length < 2) {
+    if (!stops || stops.length < 2)
       return res.status(400).json({ error: "At least two stops required." });
-    }
 
     const origin = `${stops[0].lat},${stops[0].lon}`;
     const destination = `${stops[stops.length - 1].lat},${stops[stops.length - 1].lon}`;
@@ -61,7 +64,7 @@ app.post("/optimize", async (req, res) => {
       console.error("Google API error:", data);
       return res.status(500).json({
         error: "Google Directions API failed",
-        details: data,
+        details: data
       });
     }
 
@@ -75,8 +78,6 @@ app.post("/optimize", async (req, res) => {
   }
 });
 
-// ----------------------
-// Start server
 // ----------------------
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
