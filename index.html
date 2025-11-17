@@ -26,6 +26,7 @@
     }
   </style>
 </head>
+
 <body class="bg-gray-100 flex flex-col items-center justify-start min-h-screen">
 
   <h1 class="text-2xl font-bold mt-4 mb-2 text-blue-800 text-center">🚚 MM Courier Route Planner</h1>
@@ -36,13 +37,20 @@
     <input id="newAddress" type="text" placeholder="Enter address" class="border px-2 py-2 rounded w-full sm:w-64" />
     <button id="addStop" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Add Stop</button>
     <button id="loadRoute" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Load Route</button>
-    <button id="startRoute" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Start Route</button>
+    
+    <!-- NEW BUTTONS -->
+    <button id="startNavigation" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700" disabled>
+      Start Navigation
+    </button>
+    <button id="nextStop" class="bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700" disabled>
+      Next Stop
+    </button>
   </div>
 
   <script>
     const API_URL = "https://mm-courier-route-planner.onrender.com";
 
-    // Leaflet map initialization
+    // Leaflet map
     const map = L.map("map").setView([-26.2041, 28.0473], 11);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: "© OpenStreetMap contributors",
@@ -52,22 +60,26 @@
     let stops = [];
     let markers = [];
     let routeLine;
-    let currentStopIndex = 0;
+    let optimizedRoute = [];
+    let currentIndex = 0;
 
-    // Google Places Autocomplete
+    // Google Autocomplete
     let autocomplete;
     function initAutocomplete() {
-      const input = document.getElementById("newAddress");
-      autocomplete = new google.maps.places.Autocomplete(input, { types: ["geocode"] });
+      autocomplete = new google.maps.places.Autocomplete(
+        document.getElementById("newAddress"),
+        { types: ["geocode"] }
+      );
     }
 
-    // Add Stop
+    // Add stop
     document.getElementById("addStop").addEventListener("click", () => {
       const place = autocomplete.getPlace();
       if (!place || !place.geometry) {
         alert("Please select a valid address from suggestions");
         return;
       }
+
       const lat = place.geometry.location.lat();
       const lon = place.geometry.location.lng();
       stops.push({ lat, lon });
@@ -75,17 +87,14 @@
       const marker = L.marker([lat, lon]).addTo(map);
       marker.bindPopup(`Stop ${stops.length}`).openPopup();
       markers.push(marker);
-
       map.setView([lat, lon], 12);
+
       document.getElementById("newAddress").value = "";
     });
 
     // Load optimized route
     document.getElementById("loadRoute").addEventListener("click", async () => {
-      if (stops.length < 2) {
-        alert("Please add at least two stops");
-        return;
-      }
+      if (stops.length < 2) return alert("Please add at least two stops");
 
       try {
         const res = await fetch(`${API_URL}/optimize`, {
@@ -93,65 +102,86 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ stops }),
         });
-        if (!res.ok) throw new Error("Failed to fetch route");
+
         const data = await res.json();
-        if (!data.routes || data.routes.length === 0) throw new Error("No route found");
+        optimizedRoute = data.optimizedStops || [];
+        currentIndex = 0;
+
+        if (optimizedRoute.length === 0) {
+          alert("No optimized route returned");
+          return;
+        }
+
+        document.getElementById("startNavigation").disabled = false;
+        document.getElementById("nextStop").disabled = true;
 
         const coords = decodePolyline(data.routes[0].overview_polyline.points);
-
         if (routeLine) map.removeLayer(routeLine);
         routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
         map.fitBounds(routeLine.getBounds());
-        currentStopIndex = 0; // Reset for navigation
+
+        alert("Route loaded. Tap Start Navigation.");
+
       } catch (err) {
         console.error(err);
-        alert("Error optimizing route. Check console.");
+        alert("Error optimizing route. See console.");
       }
     });
 
-    // Start route in Google Maps
-    document.getElementById("startRoute").addEventListener("click", () => {
-      if (stops.length < 2) {
-        alert("Please add at least two stops first");
+    // Open Google Maps turn-by-turn navigation
+    function openNavigation(lat, lon) {
+      const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=driving`;
+      window.open(url, "_blank");
+    }
+
+    // Start route
+    document.getElementById("startNavigation").addEventListener("click", () => {
+      if (optimizedRoute.length === 0) return;
+
+      const stop = optimizedRoute[0];
+      openNavigation(stop.lat, stop.lon);
+
+      document.getElementById("nextStop").disabled = false;
+    });
+
+    // Next stop
+    document.getElementById("nextStop").addEventListener("click", () => {
+      currentIndex++;
+      if (currentIndex >= optimizedRoute.length) {
+        alert("All stops completed!");
+        document.getElementById("nextStop").disabled = true;
         return;
       }
-      const origin = stops[currentStopIndex];
-      const destination = stops[stops.length - 1];
-      const waypoints = stops
-        .slice(currentStopIndex + 1, stops.length - 1)
-        .map(s => `${s.lat},${s.lon}`)
-        .join("|");
 
-      const url = `https://www.google.com/maps/dir/?api=1&origin=${origin.lat},${origin.lon}&destination=${destination.lat},${destination.lon}&travelmode=driving${waypoints ? "&waypoints=" + waypoints : ""}`;
-
-      window.open(url, "_blank");
+      const stop = optimizedRoute[currentIndex];
+      openNavigation(stop.lat, stop.lon);
     });
 
-    // Decode polyline from Google Directions API
+    // Polyline decoder
     function decodePolyline(str, precision = 5) {
-      let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
+      let index = 0, lat = 0, lng = 0, coordinates = [];
       const factor = Math.pow(10, -precision);
+
       while (index < str.length) {
-        byte = null; shift = 0; result = 0;
+        let b, shift = 0, result = 0;
         do {
-          byte = str.charCodeAt(index++) - 63;
-          result |= (byte & 0x1f) << shift;
+          b = str.charCodeAt(index++) - 63;
+          result |= (b & 0x1f) << shift;
           shift += 5;
-        } while (byte >= 0x20);
-        const deltaLat = ((result & 1) ? ~(result >> 1) : (result >> 1));
-        lat += deltaLat;
+        } while (b >= 0x20);
+        lat += (result & 1 ? ~(result >> 1) : result >> 1);
 
         shift = 0; result = 0;
         do {
-          byte = str.charCodeAt(index++) - 63;
-          result |= (byte & 0x1f) << shift;
+          b = str.charCodeAt(index++) - 63;
+          result |= (b & 0x1f) << shift;
           shift += 5;
-        } while (byte >= 0x20);
-        const deltaLng = ((result & 1) ? ~(result >> 1) : (result >> 1));
-        lng += deltaLng;
+        } while (b >= 0x20);
+        lng += (result & 1 ? ~(result >> 1) : result >> 1);
 
         coordinates.push([lat * factor, lng * factor]);
       }
+
       return coordinates;
     }
   </script>
