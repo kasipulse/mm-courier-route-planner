@@ -9,25 +9,30 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ----------------------
-// CORS - allow your UI domain
+// CORS - allow frontend
 // ----------------------
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      const allowed = [
-        "https://mm-courier-route-planner-ui.onrender.com",
-        "http://localhost:5173"
-      ];
-      if (!origin || allowed.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
-  })
-);
+const allowedOrigins = [
+  "https://mm-courier-route-planner-ui.onrender.com",
+  "http://localhost:5173"
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // allow requests with no origin (like curl, Postman)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("CORS not allowed"));
+    }
+  },
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
+  credentials: true, // allow cookies if needed
+}));
+
+// Must handle OPTIONS requests for preflight
+app.options("*", cors());
 
 app.use(express.json());
 
