@@ -1,155 +1,97 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MM Courier Route Planner</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Google Maps Places API -->
-  <script
-    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete"
-    defer
-  ></script>
-</head>
-<body class="bg-gray-100 flex flex-col items-center min-h-screen">
-  <h1 class="text-2xl font-bold m-4 text-blue-800">🚚 MM Courier Route Planner</h1>
+<script>
+const API_URL = "https://mm-courier-route-planner.onrender.com";
+const map = L.map("map").setView([-26.2041, 28.0473], 11);
 
-  <div id="map" class="w-11/12 h-[70vh] rounded-2xl shadow-lg"></div>
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "© OpenStreetMap contributors",
+}).addTo(map);
 
-  <div class="mt-4 flex flex-wrap justify-center gap-2">
-    <input id="newAddress" type="text" placeholder="Enter address" class="border px-2 py-1 rounded w-64" />
-    <button id="addStop" class="bg-green-600 text-white px-4 py-1 rounded hover:bg-green-700">Add Stop</button>
-    <button id="loadRoute" class="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700">Load Route</button>
-  </div>
+let stops = [];
+let routeLine;
+let markers = [];
 
-  <script>
-    const API_URL = "https://mm-courier-route-planner.onrender.com";
-    const map = L.map("map").setView([-26.2041, 28.0473], 11);
+function decodePolyline(str, precision = 5) {
+  let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
+  const factor = Math.pow(10, -precision);
+  while (index < str.length) {
+    byte = null; shift = 0; result = 0;
+    do {
+      byte = str.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    let deltaLat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lat += deltaLat;
+    shift = 0; result = 0;
+    do {
+      byte = str.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    let deltaLng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lng += deltaLng;
+    coordinates.push([lat * factor, lng * factor]);
+  }
+  return coordinates;
+}
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "© OpenStreetMap contributors",
-    }).addTo(map);
+async function loadRoute() {
+  if (stops.length < 2) {
+    alert("Add at least 2 stops before loading the route.");
+    return;
+  }
 
-    let stops = [];
-    let markers = [];
-    let routeLine;
-
-    // ----------------------
-    // Google Places Autocomplete
-    // ----------------------
-    let autocomplete;
-    function initAutocomplete() {
-      const input = document.getElementById("newAddress");
-      autocomplete = new google.maps.places.Autocomplete(input, { types: ["geocode"] });
-
-      autocomplete.addListener("place_changed", () => {
-        const place = autocomplete.getPlace();
-        if (!place || !place.geometry) return;
-        input.dataset.lat = place.geometry.location.lat();
-        input.dataset.lon = place.geometry.location.lng();
-      });
-    }
-
-    // ----------------------
-    // Add stop from autocomplete
-    // ----------------------
-    document.getElementById("addStop").addEventListener("click", () => {
-      const input = document.getElementById("newAddress");
-      const lat = parseFloat(input.dataset.lat);
-      const lon = parseFloat(input.dataset.lon);
-
-      if (!lat || !lon) {
-        alert("Please select a valid address from suggestions");
-        return;
-      }
-
-      stops.push({ lat, lon });
-
-      const marker = L.marker([lat, lon]).addTo(map);
-      marker.bindPopup(`Stop ${stops.length}`).openPopup();
-      markers.push(marker);
-
-      map.setView([lat, lon], 12);
-      input.value = "";
-      delete input.dataset.lat;
-      delete input.dataset.lon;
+  try {
+    const res = await fetch(`${API_URL}/optimize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stops }),
     });
 
-    // ----------------------
-    // Load optimized route
-    // ----------------------
-    async function loadRoute() {
-      if (stops.length < 2) {
-        alert("Please add at least two stops");
-        return;
-      }
-
-      try {
-        const res = await fetch(`${API_URL}/optimize`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ stops }),
-        });
-
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Server responded with ${res.status}: ${text}`);
-        }
-
-        const data = await res.json();
-
-        if (!data.routes || data.routes.length === 0) {
-          alert("No route returned by server. Check console.");
-          console.error("Server response:", data);
-          return;
-        }
-
-        const coords = decodePolyline(data.routes[0].overview_polyline.points);
-
-        if (routeLine) map.removeLayer(routeLine);
-        routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
-
-        map.fitBounds(routeLine.getBounds());
-      } catch (err) {
-        console.error("Failed to load route:", err);
-        alert(`Error loading route: ${err.message}`);
-      }
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Server responded with ${res.status}: ${text}`);
     }
 
-    document.getElementById("loadRoute").addEventListener("click", loadRoute);
+    const data = await res.json();
 
-    // ----------------------
-    // Decode polyline from Google
-    // ----------------------
-    function decodePolyline(str, precision = 5) {
-      let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
-      const factor = Math.pow(10, -precision);
-
-      while (index < str.length) {
-        byte = null; shift = 0; result = 0;
-        do {
-          byte = str.charCodeAt(index++) - 63;
-          result |= (byte & 0x1f) << shift;
-          shift += 5;
-        } while (byte >= 0x20);
-        const deltaLat = ((result & 1) ? ~(result >> 1) : (result >> 1));
-        lat += deltaLat;
-
-        shift = 0; result = 0;
-        do {
-          byte = str.charCodeAt(index++) - 63;
-          result |= (byte & 0x1f) << shift;
-          shift += 5;
-        } while (byte >= 0x20);
-        const deltaLng = ((result & 1) ? ~(result >> 1) : (result >> 1));
-        lng += deltaLng;
-
-        coordinates.push([lat * factor, lng * factor]);
-      }
-      return coordinates;
+    if (!data.routes || !data.routes[0]) {
+      alert("No route returned by the server.");
+      console.error("Server response:", data);
+      return;
     }
-  </script>
-</body>
-</html>
+
+    const coords = decodePolyline(data.routes[0].overview_polyline.points);
+
+    if (routeLine) map.removeLayer(routeLine);
+    routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
+
+    markers.forEach(m => map.removeLayer(m));
+    markers = [];
+    stops.forEach((s, i) => {
+      const marker = L.marker([s.lat, s.lon]).addTo(map);
+      marker.bindPopup(`Stop ${i + 1}`);
+      markers.push(marker);
+    });
+
+    map.fitBounds(routeLine.getBounds());
+  } catch (err) {
+    console.error("Failed to load route:", err);
+    alert(`Error loading route: ${err.message}`);
+  }
+}
+
+document.getElementById("loadRoute").addEventListener("click", loadRoute);
+
+document.getElementById("addStop").addEventListener("click", () => {
+  const input = document.getElementById("newAddress");
+  if (!input.value) return alert("Enter an address first.");
+
+  // Placeholder: in future, convert address to lat/lon via Geocoding API
+  const lat = -26.2 + Math.random() * 0.05;
+  const lon = 28.0 + Math.random() * 0.05;
+  stops.push({ lat, lon });
+  input.value = "";
+  alert("Stop added! Now click 'Load Route'.");
+});
+</script>
