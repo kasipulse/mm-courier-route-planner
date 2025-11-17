@@ -15,12 +15,12 @@ app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "https://mm-courier-route-planner-ui.onrender.com"); // allow only your frontend
   res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  
+
   if (req.method === "OPTIONS") {
     // Preflight request
     return res.sendStatus(200);
   }
-  
+
   next();
 });
 
@@ -43,7 +43,8 @@ app.post("/optimize", async (req, res) => {
 
     const origin = `${stops[0].lat},${stops[0].lon}`;
     const destination = `${stops[stops.length - 1].lat},${stops[stops.length - 1].lon}`;
-    const waypoints = stops.length > 2 ? stops.slice(1, -1).map(s => `${s.lat},${s.lon}`).join("|") : "";
+    const waypoints =
+      stops.length > 2 ? stops.slice(1, -1).map(s => `${s.lat},${s.lon}`).join("|") : "";
 
     const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&waypoints=optimize:true|${waypoints}&key=${process.env.GOOGLE_MAPS_KEY}`;
 
