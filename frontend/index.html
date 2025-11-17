@@ -1,106 +1,156 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>MM Courier Route Planner</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MM Courier Route Planner</title>
 
-<!-- Google Places API -->
-<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_KEY&libraries=places"></script>
+  <!-- Tailwind CSS (note: for production, consider compiling via CLI) -->
+  <script src="https://cdn.tailwindcss.com" defer></script>
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet/dist/leaflet.css"
+  />
+
 </head>
 <body class="bg-gray-100 flex flex-col items-center min-h-screen">
-<h1 class="text-2xl font-bold m-4 text-blue-800">🚚 MM Courier Route Planner</h1>
 
-<div id="map" class="w-11/12 h-[70vh] rounded-2xl shadow-lg"></div>
+  <h1 class="text-2xl font-bold m-4 text-blue-800">🚚 MM Courier Route Planner</h1>
 
-<div class="mt-4 flex flex-wrap justify-center gap-2">
-  <input id="addressInput" type="text" placeholder="Enter address" class="border px-2 py-1 rounded w-64"/>
-  <button id="addStop" class="bg-green-600 text-white px-4 py-1 rounded">Add Stop</button>
-  <button id="loadRoute" class="bg-blue-600 text-white px-4 py-1 rounded">Load Route</button>
-</div>
+  <div id="map" class="w-11/12 h-[70vh] rounded-2xl shadow-lg"></div>
 
-<script>
-const API_URL = "https://mm-courier-route-planner.onrender.com";
-const map = L.map("map").setView([-26.2041, 28.0473], 11);
+  <div class="mt-4 flex flex-wrap justify-center gap-2">
+    <input id="newAddress" type="text" placeholder="Enter address" class="border px-2 py-1 rounded w-64" />
+    <button id="addStop" class="bg-green-600 text-white px-4 py-1 rounded hover:bg-green-700">Add Stop</button>
+    <button id="loadRoute" class="bg-blue-600 text-white px-4 py-1 rounded hover:bg-blue-700">Load Route</button>
+  </div>
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  attribution: "© OpenStreetMap contributors"
-}).addTo(map);
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js" defer></script>
 
-let stops = [
-  { lat: -26.195246, lon: 28.034088 },
-  { lat: -26.204103, lon: 28.047304 }
-];
+  <!-- Google Maps Places API -->
+  <script
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete"
+    defer
+  ></script>
 
-let markers = [];
-let routeLine;
+  <script defer>
+    const API_URL = "https://mm-courier-route-planner.onrender.com";
 
-// Google Autocomplete
-const autocomplete = new google.maps.places.Autocomplete(
-  document.getElementById("addressInput"), { types: ["geocode"] }
-);
+    let map, stops = [], markers = [], routeLine;
+    let autocomplete;
 
-function decodePolyline(str) {
-  let index=0,lat=0,lng=0,coords=[],shift=0,result=0,byte=null,factor=1e-5;
-  while(index<str.length){
-    byte=null;shift=0;result=0;
-    do{ byte=str.charCodeAt(index++)-63; result|=(byte&0x1f)<<shift; shift+=5 }while(byte>=0x20);
-    let dlat=((result&1)?~(result>>1):(result>>1)); lat+=dlat;
-    shift=0;result=0;
-    do{ byte=str.charCodeAt(index++)-63; result|=(byte&0x1f)<<shift; shift+=5 }while(byte>=0x20);
-    let dlng=((result&1)?~(result>>1):(result>>1)); lng+=dlng;
-    coords.push([lat*factor,lng*factor]);
-  }
-  return coords;
-}
+    // ----------------------
+    // Initialize Map & Autocomplete after window loads
+    // ----------------------
+    window.onload = function() {
+      // Initialize Leaflet Map
+      map = L.map("map").setView([-26.2041, 28.0473], 11);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap contributors",
+      }).addTo(map);
 
-async function loadRoute(){
-  try {
-    const res = await fetch(`${API_URL}/optimize`, {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ stops })
-    });
-    const data = await res.json();
-    if(!data.routes) return alert("Failed to load route");
+      // Initialize Google Places Autocomplete
+      const input = document.getElementById("newAddress");
+      autocomplete = new google.maps.places.Autocomplete(input, { types: ["geocode"] });
 
-    const coords = decodePolyline(data.routes[0].overview_polyline.points);
-    if(routeLine) map.removeLayer(routeLine);
-    routeLine = L.polyline(coords,{ color:"blue" }).addTo(map);
+      // Add stop event
+      document.getElementById("addStop").addEventListener("click", () => {
+        const place = autocomplete.getPlace();
+        if (!place || !place.geometry) {
+          alert("Please select a valid address from suggestions");
+          return;
+        }
 
-    markers.forEach(m=>map.removeLayer(m));
-    markers=[];
-    stops.forEach((s,i)=>{
-      const marker=L.marker([s.lat,s.lon]).addTo(map);
-      marker.bindPopup(`Stop ${i+1}`);
-      markers.push(marker);
-    });
-    map.fitBounds(routeLine.getBounds());
-  } catch(err){
-    console.error(err);
-    alert("Error optimizing route. Check console.");
-  }
-}
+        const lat = place.geometry.location.lat();
+        const lon = place.geometry.location.lng();
+        stops.push({ lat, lon });
 
-document.getElementById("loadRoute").addEventListener("click", loadRoute);
+        const marker = L.marker([lat, lon]).addTo(map);
+        marker.bindPopup(`Stop ${stops.length}`).openPopup();
+        markers.push(marker);
 
-document.getElementById("addStop").addEventListener("click",()=>{
-  const place=autocomplete.getPlace();
-  if(!place||!place.geometry) return alert("Select a valid address from suggestions");
+        map.setView([lat, lon], 12);
+        document.getElementById("newAddress").value = "";
+      });
 
-  stops.push({
-    lat: place.geometry.location.lat(),
-    lon: place.geometry.location.lng()
-  });
-  document.getElementById("addressInput").value="";
-  loadRoute();
-});
+      // Load Route event
+      document.getElementById("loadRoute").addEventListener("click", loadRoute);
+    };
 
-// Initial route
-loadRoute();
-</script>
+    // ----------------------
+    // Load optimized route
+    // ----------------------
+    async function loadRoute() {
+      if (stops.length < 2) {
+        alert("Please add at least two stops");
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_URL}/optimize`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stops }),
+        });
+
+        if (!res.ok) throw new Error("Failed to fetch route");
+
+        const data = await res.json();
+        if (!data.routes || data.routes.length === 0) throw new Error("No route found");
+
+        const coords = decodePolyline(data.routes[0].overview_polyline.points);
+
+        if (routeLine) map.removeLayer(routeLine);
+        routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
+
+        map.fitBounds(routeLine.getBounds());
+      } catch (err) {
+        console.error("Failed to load route:", err);
+        alert("Error optimizing route. Check console.");
+      }
+    }
+
+    // ----------------------
+    // Decode polyline from Google
+    // ----------------------
+    function decodePolyline(str, precision = 5) {
+      let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
+      const factor = Math.pow(10, -precision);
+
+      while (index < str.length) {
+        byte = null; shift = 0; result = 0;
+        do {
+          byte = str.charCodeAt(index++) - 63;
+          result |= (byte & 0x1f) << shift;
+          shift += 5;
+        } while (byte >= 0x20);
+        const deltaLat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lat += deltaLat;
+
+        shift = 0; result = 0;
+        do {
+          byte = str.charCodeAt(index++) - 63;
+          result |= (byte & 0x1f) << shift;
+          shift += 5;
+        } while (byte >= 0x20);
+        const deltaLng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lng += deltaLng;
+
+        coordinates.push([lat * factor, lng * factor]);
+      }
+      return coordinates;
+    }
+
+    // ----------------------
+    // Google Maps Autocomplete callback
+    // ----------------------
+    function initAutocomplete() {
+      console.log("Google Places API loaded ✅");
+    }
+
+  </script>
 </body>
 </html>
