@@ -1,7 +1,7 @@
 import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
-import fetch from "node-fetch"; // make sure node-fetch is installed
+import fetch from "node-fetch";
 
 dotenv.config();
 const app = express();
@@ -82,6 +82,26 @@ app.post("/optimize", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Route optimization error" });
+  }
+});
+
+// ----------------------
+// POST /mark-delivered
+// ----------------------
+// This will just log delivered stops in memory for now
+let deliveredStops = []; // reset when server restarts
+app.post("/mark-delivered", (req, res) => {
+  try {
+    const { stopId } = req.body;
+    if (stopId === undefined) return res.status(400).json({ error: "stopId required" });
+
+    deliveredStops.push(stopId);
+    console.log(`Stop ${stopId} marked delivered. Delivered stops:`, deliveredStops);
+
+    res.json({ message: `Stop ${stopId} marked delivered`, deliveredStops });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to mark stop delivered" });
   }
 });
 
