@@ -8,9 +8,9 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
-
-// ✅ Allow your UI domain ONLY (safer)
+// ----------------------
+// CORS: allow only frontend UI
+// ----------------------
 app.use(
   cors({
     origin: [
@@ -21,6 +21,11 @@ app.use(
     allowedHeaders: ["Content-Type"],
   })
 );
+
+// ----------------------
+// JSON middleware
+// ----------------------
+app.use(express.json());
 
 // ----------------------
 // Health Check
@@ -36,12 +41,12 @@ app.post("/optimize", async (req, res) => {
   try {
     const { stops } = req.body;
 
-    if (!stops || stops.length < 2)
+    if (!stops || stops.length < 2) {
       return res.status(400).json({ error: "At least two stops required." });
+    }
 
     const origin = `${stops[0].lat},${stops[0].lon}`;
     const destination = `${stops[stops.length - 1].lat},${stops[stops.length - 1].lon}`;
-
     const waypoints =
       stops.length > 2
         ? stops.slice(1, -1).map(s => `${s.lat},${s.lon}`).join("|")
@@ -56,7 +61,7 @@ app.post("/optimize", async (req, res) => {
       console.error("Google API error:", data);
       return res.status(500).json({
         error: "Google Directions API failed",
-        details: data
+        details: data,
       });
     }
 
@@ -70,6 +75,8 @@ app.post("/optimize", async (req, res) => {
   }
 });
 
+// ----------------------
+// Start server
 // ----------------------
 app.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
