@@ -1,19 +1,51 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
   <title>MM Courier Route Planner</title>
 
+  <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- Google Places API -->
-  <script
-    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete"
-    defer>
+  <script>
+    // Google callback – must exist globally before Google loads
+    window.initAutocomplete = function () {
+      function start() {
+        const input = document.getElementById("newAddress");
+        if (!input) {
+          document.addEventListener("DOMContentLoaded", start);
+          return;
+        }
+
+        window.autocomplete = new google.maps.places.Autocomplete(input, {
+          types: ["geocode"]
+        });
+
+        window.lastSelectedPlace = null;
+
+        window.autocomplete.addListener("place_changed", () => {
+          try {
+            window.lastSelectedPlace = window.autocomplete.getPlace();
+          } catch (e) {
+            window.lastSelectedPlace = null;
+          }
+        });
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", start);
+      } else {
+        start();
+      }
+    };
   </script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete" defer></script>
 
   <style>
     body { overflow: hidden; -webkit-tap-highlight-color: transparent; }
@@ -66,39 +98,29 @@
     </button>
   </div>
 
-  <!-- MAIN SCRIPT -->
   <script>
-    // Google callback placeholder (will be filled after DOM loads)
-    let initAutocomplete = () => {};
-
     document.addEventListener("DOMContentLoaded", function () {
       const API_URL = "https://mm-courier-route-planner.onrender.com";
 
-      // Initialize map AFTER DOM is ready
       const map = L.map("map").setView([-26.2041, 28.0473], 12);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
       let stops = [];
       let markers = [];
       let routeLine = null;
-      let autocomplete;
-
-      // -------------------------
-      // Autocomplete (Google calls this)
-      // -------------------------
-      initAutocomplete = () => {
-        autocomplete = new google.maps.places.Autocomplete(
-          document.getElementById("newAddress"),
-          { types: ["geocode"] }
-        );
-      };
+      let currentStopIndex = 0;
 
       // -------------------------
       // Add Stop
       // -------------------------
       document.getElementById("addStop").onclick = () => {
-        const place = autocomplete.getPlace();
-        if (!place?.geometry) return alert("Select a valid address.");
+        const place =
+          window.lastSelectedPlace ||
+          (window.autocomplete?.getPlace && window.autocomplete.getPlace());
+
+        if (!place || !place.geometry) {
+          return alert("Select a valid address from Google suggestions.");
+        }
 
         const lat = place.geometry.location.lat();
         const lon = place.geometry.location.lng();
@@ -108,6 +130,7 @@
         updateSidebar();
 
         document.getElementById("newAddress").value = "";
+        window.lastSelectedPlace = null;
       };
 
       function addMarker(lat, lon) {
@@ -169,16 +192,17 @@
         routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
         map.fitBounds(routeLine.getBounds());
 
+        // Distance + time
         document.getElementById("totalDistance").innerText =
           route.legs.reduce((a, b) => a + b.distance.value, 0) / 1000 + " km";
-
         document.getElementById("totalTime").innerText =
-          Math.round(route.legs.reduce((a, b) => a + b.duration.value, 0) / 60) +
-          " mins";
+          Math.round(route.legs.reduce((a, b) => a + b.duration.value, 0) / 60) + " mins";
+
+        currentStopIndex = 0;
       }
 
       // -------------------------
-      // Navigation Button
+      // Start Navigation
       // -------------------------
       document.getElementById("navBtn").onclick = () => {
         if (stops.length < 2) return alert("Add stops first.");
@@ -187,9 +211,7 @@
         const destination = `${stops[stops.length - 1].lat},${stops[stops.length - 1].lon}`;
         const waypoints = stops.slice(1, -1).map(s => `${s.lat},${s.lon}`).join("|");
 
-        const url =
-          `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
-
+        const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
         window.open(url, "_blank");
       };
 
@@ -234,6 +256,30 @@
         }
         return coordinates;
       }
+
+      // -------------------------
+      // Add "Mark Delivered & Next Stop" Button
+      // -------------------------
+      const btn = document.createElement("button");
+      btn.textContent = "Mark Delivered & Next Stop";
+      btn.className = "bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700 mt-4 fixed bottom-24 left-1/2 -translate-x-1/2 z-50";
+      btn.onclick = () => {
+        if (currentStopIndex >= stops.length) return alert("All stops completed!");
+
+        const stopId = currentStopIndex + 1;
+        alert(`Stop ${stopId} delivered!`);
+
+        currentStopIndex++;
+        if (currentStopIndex < stops.length) {
+          const next = stops[currentStopIndex];
+          map.setView([next.lat, next.lon], 15);
+          const url = `https://www.google.com/maps/dir/?api=1&destination=${next.lat},${next.lon}&travelmode=driving`;
+          window.open(url, "_blank");
+        } else {
+          alert("All stops completed!");
+        }
+      };
+      document.body.appendChild(btn);
     });
   </script>
 
