@@ -1,220 +1,184 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<script>
+const API_URL = "https://mm-courier-route-planner.onrender.com";
 
-  <title>MM Courier Route Planner</title>
+// Initialize Leaflet map
+const map = L.map("map").setView([-26.2041, 28.0473], 11);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "© OpenStreetMap contributors",
+}).addTo(map);
+map.invalidateSize();
 
-  <!-- Leaflet CSS -->
-  <link 
-    rel="stylesheet" 
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
-    integrity="sha256-sA+4J1r+zFZJN2I7DiIP9N6byN1Nsx3Rp3crIan2n0c=" 
-    crossorigin=""
-  />
+let stops = [];
+let markers = [];
+let routeLine;
+let currentStopIndex = 0;
 
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: Arial;
-      background: #f3f3f3;
+// ----------------------
+// Google Places Autocomplete
+// ----------------------
+let autocomplete;
+function initAutocomplete() {
+  const input = document.getElementById("newAddress");
+  autocomplete = new google.maps.places.Autocomplete(input, { types: ["geocode"] });
+
+  autocomplete.addListener("place_changed", () => {
+    const place = autocomplete.getPlace();
+    if (!place || !place.geometry) {
+      alert("Please select a valid address from suggestions");
+      return;
     }
-    #map {
-      width: 100vw;
-      height: 60vh;
+  });
+}
+
+// ----------------------
+// Add stop from autocomplete
+// ----------------------
+document.getElementById("addStop").addEventListener("click", () => {
+  const place = autocomplete.getPlace();
+  if (!place || !place.geometry) {
+    alert("Please select a valid address from suggestions");
+    return;
+  }
+
+  const lat = place.geometry.location.lat();
+  const lon = place.geometry.location.lng();
+  stops.push({ lat, lon });
+
+  const marker = L.marker([lat, lon]).addTo(map);
+  marker.bindPopup(`Stop ${stops.length}`).openPopup();
+  markers.push(marker);
+
+  map.setView([lat, lon], 12);
+  document.getElementById("newAddress").value = "";
+});
+
+// ----------------------
+// Load optimized route
+// ----------------------
+async function loadRoute() {
+  if (stops.length < 2) {
+    alert("Please add at least two stops");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_URL}/optimize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stops }),
+    });
+
+    if (!res.ok) throw new Error("Failed to fetch route");
+
+    const data = await res.json();
+    if (!data.routes || data.routes.length === 0) throw new Error("No route found");
+
+    const coords = decodePolyline(data.routes[0].overview_polyline.points);
+
+    if (routeLine) map.removeLayer(routeLine);
+    routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
+
+    map.fitBounds(routeLine.getBounds());
+
+    currentStopIndex = 0;
+    highlightCurrentStop();
+  } catch (err) {
+    console.error(err);
+    alert("Error optimizing route. Check console.");
+  }
+}
+
+document.getElementById("loadRoute").addEventListener("click", loadRoute);
+
+// ----------------------
+// Highlight current stop
+// ----------------------
+function highlightCurrentStop() {
+  markers.forEach((m, i) => {
+    m.setIcon(
+      i === currentStopIndex
+        ? new L.Icon.Default({ className: "current-stop" })
+        : new L.Icon.Default()
+    );
+  });
+}
+
+// ----------------------
+// Mark stop delivered & go to next
+// ----------------------
+async function markDeliveredNext() {
+  if (currentStopIndex >= stops.length) {
+    alert("All stops completed!");
+    return;
+  }
+
+  const stopId = currentStopIndex + 1;
+
+  try {
+    await fetch(`${API_URL}/mark-delivered`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stopId }),
+    });
+
+    alert(`Stop ${stopId} delivered!`);
+
+    // Move to next stop
+    currentStopIndex++;
+    highlightCurrentStop();
+
+    if (currentStopIndex < stops.length) {
+      const next = stops[currentStopIndex];
+      map.setView([next.lat, next.lon], 15);
+
+      const url = `https://www.google.com/maps/dir/?api=1&destination=${next.lat},${next.lon}&travelmode=driving`;
+      window.open(url, "_blank");
+    } else {
+      alert("All stops completed!");
     }
-    .controls {
-      padding: 10px;
-      background: white;
-    }
-    button {
-      padding: 12px;
-      width: 100%;
-      margin-top: 10px;
-      background: #0a2b52;
-      color: white;
-      border: none;
-      border-radius: 6px;
-    }
+  } catch (err) {
+    console.error(err);
+    alert("Failed to mark stop delivered");
+  }
+}
 
-    input, textarea {
-      width: 100%;
-      padding: 8px;
-      margin-top: 10px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-    }
+// ----------------------
+// Decode polyline
+// ----------------------
+function decodePolyline(str, precision = 5) {
+  let index = 0, lat = 0, lng = 0, coordinates = [];
+  let shift = 0, result = 0, byte = null;
+  const factor = Math.pow(10, -precision);
 
-    @media (max-width: 600px) {
-      #map {
-        height: 65vh;
-      }
-    }
-  </style>
-</head>
+  while (index < str.length) {
+    byte = null; shift = 0; result = 0;
+    do {
+      byte = str.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    lat += ((result & 1) ? ~(result >> 1) : (result >> 1));
 
-<body>
-  <div id="map"></div>
+    shift = 0; result = 0;
+    do {
+      byte = str.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    lng += ((result & 1) ? ~(result >> 1) : (result >> 1));
 
-  <div class="controls">
-    <textarea id="stopsInput" rows="5" placeholder='Enter stops, one per line:
-FedEx Kempton
-57 Atlas Road
-4 Sandton Drive
-'></textarea>
+    coordinates.push([lat * factor, lng * factor]);
+  }
+  return coordinates;
+}
 
-    <button onclick="loadRoute()">Load Route</button>
-    <button onclick="startNavigation()">Start Navigation</button>
-    <button onclick="nextStop()">Next Stop</button>
-  </div>
+// ----------------------
+// Add "Mark Delivered" button
+// ----------------------
+const btn = document.createElement("button");
+btn.textContent = "Mark Delivered & Next Stop";
+btn.className = "bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700 mt-4";
+btn.onclick = markDeliveredNext;
+document.body.appendChild(btn);
 
-  <!-- Leaflet JS -->
-  <script 
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" 
-    integrity="sha256-sm1r6DsICoZq2QcE52Hf+I5p1+tJAuE2WcJ6iYGZ8Jw=" 
-    crossorigin="">
-  </script>
-
-  <script>
-    const API = "https://mm-courier-route-planner.onrender.com";
-
-    let map = L.map("map").setView([-26.2041, 28.0473], 11);
-    let markers = [];
-    let routeLine = null;
-    let optimizedStops = [];
-    let currentStopIndex = 0;
-
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-    }).addTo(map);
-
-    // ----------------------------
-    // LOAD ROUTE
-    // ----------------------------
-    async function loadRoute() {
-      const lines = document
-        .getElementById("stopsInput")
-        .value.split("\n")
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
-
-      if (lines.length < 2) {
-        alert("Please enter at least 2 stops.");
-        return;
-      }
-
-      // Clear old route + markers
-      markers.forEach((m) => map.removeLayer(m));
-      markers = [];
-      if (routeLine) map.removeLayer(routeLine);
-
-      // 1. Geocode all stops
-      const geoStops = [];
-      for (let address of lines) {
-        const r = await fetch(API + "/geocode", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ address }),
-        });
-        const data = await r.json();
-        geoStops.push({ ...data, address });
-      }
-
-      optimizedStops = geoStops;
-
-      // 2. Get optimized route
-      const r = await fetch(API + "/optimize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stops: geoStops }),
-      });
-
-      const route = await r.json();
-
-      if (!route.routes || !route.routes[0]) {
-        alert("Route optimization failed");
-        return;
-      }
-
-      const points = decodePolyline(route.routes[0].overview_polyline.points);
-
-      routeLine = L.polyline(points, { weight: 5 }).addTo(map);
-      map.fitBounds(routeLine.getBounds());
-
-      // Add markers
-      geoStops.forEach((s) => {
-        markers.push(
-          L.marker([s.lat, s.lng]).addTo(map).bindPopup(s.address)
-        );
-      });
-
-      currentStopIndex = 0;
-      alert("Route loaded!");
-    }
-
-    // ----------------------------
-    // START NAVIGATION (Google Maps app)
-    // ----------------------------
-    function startNavigation() {
-      if (optimizedStops.length === 0) return alert("Load route first");
-
-      const stop = optimizedStops[currentStopIndex];
-      window.location.href =
-        `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lng}`;
-    }
-
-    // ----------------------------
-    // NEXT STOP
-    // ----------------------------
-    function nextStop() {
-      if (optimizedStops.length === 0) return alert("Load route first");
-      if (currentStopIndex >= optimizedStops.length - 1)
-        return alert("Route completed!");
-
-      currentStopIndex++;
-      startNavigation();
-    }
-
-    // ----------------------------
-    // POLYLINE DECODER
-    // ----------------------------
-    function decodePolyline(encoded) {
-      let points = [];
-      let index = 0,
-        lat = 0,
-        lng = 0;
-
-      while (index < encoded.length) {
-        let b,
-          shift = 0,
-          result = 0;
-        do {
-          b = encoded.charCodeAt(index++) - 63;
-          result |= (b & 0x1f) << shift;
-          shift += 5;
-        } while (b >= 0x20);
-
-        let dlat = result & 1 ? ~(result >> 1) : result >> 1;
-        lat += dlat;
-
-        shift = 0;
-        result = 0;
-        do {
-          b = encoded.charCodeAt(index++) - 63;
-          result |= (b & 0x1f) << shift;
-          shift += 5;
-        } while (b >= 0x20);
-
-        let dlng = result & 1 ? ~(result >> 1) : result >> 1;
-        lng += dlng;
-
-        points.push([lat / 1e5, lng / 1e5]);
-      }
-
-      return points;
-    }
-  </script>
-</body>
-</html>
+</script>
