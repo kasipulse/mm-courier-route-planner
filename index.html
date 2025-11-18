@@ -1,99 +1,3 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-<title>MM Courier Route Planner</title>
-
-<!-- Leaflet CSS -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-<!-- Tailwind -->
-<script src="https://cdn.tailwindcss.com"></script>
-
-<style>
-  body {
-    margin: 0;
-    font-family: sans-serif;
-    overflow: hidden;
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  #map {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 1; /* behind sidebar & buttons */
-  }
-
-  #sidebar {
-    transition: transform 0.3s ease;
-    z-index: 50;
-  }
-
-  .sidebar-hidden { transform: translateX(-100%); }
-  .sidebar-visible { transform: translateX(0); }
-
-  /* Bottom controls styling */
-  #bottomControls { z-index: 50; }
-</style>
-
-<!-- Leaflet JS -->
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
-<!-- Google Places API -->
-<script
-  src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete"
-  defer>
-</script>
-</head>
-<body class="bg-gray-100 flex overflow-hidden">
-
-<!-- Sidebar -->
-<div id="sidebar" class="w-64 bg-white shadow-xl p-4 sidebar-hidden fixed h-screen overflow-y-auto">
-  <h2 class="text-lg font-bold mb-2 text-blue-800">📍 Stops</h2>
-  <div id="stopList" class="space-y-3"></div>
-
-  <div class="mt-4 border-t pt-4">
-    <p class="text-sm font-semibold">Total Distance:</p>
-    <p id="totalDistance" class="text-lg text-blue-700">—</p>
-
-    <p class="text-sm font-semibold mt-2">Estimated Time:</p>
-    <p id="totalTime" class="text-lg text-blue-700">—</p>
-  </div>
-
-  <button id="navBtn" class="mt-4 w-full bg-green-700 text-white py-2 rounded-lg text-center font-semibold">
-    Start Navigation
-  </button>
-
-  <button id="nextStopBtn" class="mt-2 w-full bg-yellow-600 text-white py-2 rounded-lg text-center font-semibold">
-    Mark Delivered & Next Stop
-  </button>
-</div>
-
-<!-- Map -->
-<div id="map"></div>
-
-<!-- Top Controls -->
-<div class="absolute top-4 left-4 z-50 flex gap-2">
-  <button id="toggleSidebar" class="bg-white shadow px-4 py-2 rounded-lg font-semibold">☰ Stops</button>
-</div>
-
-<!-- Bottom Controls -->
-<div id="bottomControls" class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white shadow-xl p-4 rounded-lg w-11/12 max-w-lg">
-  <input id="newAddress" type="text" placeholder="Enter address"
-    class="border px-3 py-2 rounded w-full mb-2" />
-
-  <button id="addStop" class="w-full bg-blue-700 text-white py-2 rounded-lg mb-2 font-semibold">
-    Add Stop
-  </button>
-
-  <button id="loadRoute" class="w-full bg-green-700 text-white py-2 rounded-lg font-semibold">
-    Load Optimized Route
-  </button>
-</div>
-
 <script>
 const API_URL = "https://mm-courier-route-planner.onrender.com";
 let map, stops = [], markers = [], routeLine = null, autocomplete;
@@ -107,6 +11,24 @@ function initMap() {
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
   resizeMap();
   window.addEventListener("resize", resizeMap);
+
+  // Mobile keyboard handling
+  const bottomControls = document.getElementById("bottomControls");
+  const newAddress = document.getElementById("newAddress");
+
+  newAddress.addEventListener("focus", () => {
+    setTimeout(() => {
+      const kbHeight = 300; // approximate keyboard height
+      document.getElementById("map").style.height = `calc(100vh - ${bottomControls.offsetHeight + kbHeight}px)`;
+      map.invalidateSize();
+      document.getElementById("sidebar").style.bottom = `${kbHeight}px`;
+    }, 300);
+  });
+
+  newAddress.addEventListener("blur", () => {
+    resizeMap();
+    document.getElementById("sidebar").style.bottom = `0`;
+  });
 }
 
 function resizeMap() {
@@ -199,15 +121,14 @@ document.getElementById("navBtn").onclick = () => {
   if (!stops.length) return alert("Add at least 1 stop.");
   navigator.geolocation.getCurrentPosition(pos => {
     const { latitude, longitude } = pos.coords;
-    navigateFromCurrentLocation(latitude, longitude);
+    navigateToCurrentStop(latitude, longitude);
   }, () => {
-    // fallback to first stop if GPS fails
-    const { lat, lon } = stops[0];
-    navigateFromCurrentLocation(lat, lon);
+    const { lat, lon } = stops[currentStopIndex];
+    navigateToCurrentStop(lat, lon);
   });
 };
 
-function navigateFromCurrentLocation(startLat, startLon) {
+function navigateToCurrentStop(startLat, startLon) {
   if (currentStopIndex >= stops.length) return alert("All stops completed!");
   const destination = stops[currentStopIndex];
   const remaining = stops.slice(currentStopIndex + 1);
@@ -263,5 +184,3 @@ document.addEventListener("DOMContentLoaded", () => {
   initMap();
 });
 </script>
-</body>
-</html>
