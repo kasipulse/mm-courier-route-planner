@@ -42,6 +42,11 @@
     <button id="addStop" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Add Stop</button>
     <button id="loadRoute" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Load Route</button>
     <button id="nextStop" class="bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700">Mark Delivered / Next Stop</button>
+
+    <!-- ⭐ NEW BUTTON ADDED ⭐ -->
+    <button id="navigate" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">
+      Navigate to Current Stop
+    </button>
   </div>
 
   <!-- Leaflet JS -->
@@ -122,7 +127,7 @@
         routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
 
         map.fitBounds(routeLine.getBounds());
-        currentStopIndex = 0; // reset delivered index
+        currentStopIndex = 0;
       } catch (err) {
         console.error(err);
         alert("Error optimizing route. Check console.");
@@ -139,7 +144,6 @@
         return;
       }
 
-      // Change current stop marker color
       markers[currentStopIndex].setIcon(new L.Icon({
         iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-red.png',
         shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
@@ -156,7 +160,26 @@
     });
 
     // ----------------------
-    // Decode polyline from Google
+    // ⭐ NEW: Start Navigation ⭐
+    // ----------------------
+    document.getElementById("navigate").addEventListener("click", startNavigation);
+
+    function startNavigation() {
+      if (currentStopIndex >= stops.length) {
+        alert("No more stops to navigate to!");
+        return;
+      }
+
+      const { lat, lon } = stops[currentStopIndex];
+
+      // Google Maps turn-by-turn navigation link
+      const navUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=driving`;
+
+      window.open(navUrl, "_blank");
+    }
+
+    // ----------------------
+    // Decode polyline
     // ----------------------
     function decodePolyline(str, precision = 5) {
       let index = 0, lat = 0, lng = 0, coordinates = [], shift = 0, result = 0, byte = null;
