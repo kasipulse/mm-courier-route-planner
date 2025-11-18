@@ -1,184 +1,158 @@
-<script>
-const API_URL = "https://mm-courier-route-planner.onrender.com";
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MM Courier Route Planner</title>
 
-// Initialize Leaflet map
-const map = L.map("map").setView([-26.2041, 28.0473], 11);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  attribution: "© OpenStreetMap contributors",
-}).addTo(map);
-map.invalidateSize();
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-sA+e2atTHVbN5tJkP6KycdxY6SY+4Z1p72XdTOxyPnk="
+    crossorigin=""
+  />
 
-let stops = [];
-let markers = [];
-let routeLine;
-let currentStopIndex = 0;
-
-// ----------------------
-// Google Places Autocomplete
-// ----------------------
-let autocomplete;
-function initAutocomplete() {
-  const input = document.getElementById("newAddress");
-  autocomplete = new google.maps.places.Autocomplete(input, { types: ["geocode"] });
-
-  autocomplete.addListener("place_changed", () => {
-    const place = autocomplete.getPlace();
-    if (!place || !place.geometry) {
-      alert("Please select a valid address from suggestions");
-      return;
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
     }
-  });
-}
 
-// ----------------------
-// Add stop from autocomplete
-// ----------------------
-document.getElementById("addStop").addEventListener("click", () => {
-  const place = autocomplete.getPlace();
-  if (!place || !place.geometry) {
-    alert("Please select a valid address from suggestions");
-    return;
-  }
-
-  const lat = place.geometry.location.lat();
-  const lon = place.geometry.location.lng();
-  stops.push({ lat, lon });
-
-  const marker = L.marker([lat, lon]).addTo(map);
-  marker.bindPopup(`Stop ${stops.length}`).openPopup();
-  markers.push(marker);
-
-  map.setView([lat, lon], 12);
-  document.getElementById("newAddress").value = "";
-});
-
-// ----------------------
-// Load optimized route
-// ----------------------
-async function loadRoute() {
-  if (stops.length < 2) {
-    alert("Please add at least two stops");
-    return;
-  }
-
-  try {
-    const res = await fetch(`${API_URL}/optimize`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stops }),
-    });
-
-    if (!res.ok) throw new Error("Failed to fetch route");
-
-    const data = await res.json();
-    if (!data.routes || data.routes.length === 0) throw new Error("No route found");
-
-    const coords = decodePolyline(data.routes[0].overview_polyline.points);
-
-    if (routeLine) map.removeLayer(routeLine);
-    routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
-
-    map.fitBounds(routeLine.getBounds());
-
-    currentStopIndex = 0;
-    highlightCurrentStop();
-  } catch (err) {
-    console.error(err);
-    alert("Error optimizing route. Check console.");
-  }
-}
-
-document.getElementById("loadRoute").addEventListener("click", loadRoute);
-
-// ----------------------
-// Highlight current stop
-// ----------------------
-function highlightCurrentStop() {
-  markers.forEach((m, i) => {
-    m.setIcon(
-      i === currentStopIndex
-        ? new L.Icon.Default({ className: "current-stop" })
-        : new L.Icon.Default()
-    );
-  });
-}
-
-// ----------------------
-// Mark stop delivered & go to next
-// ----------------------
-async function markDeliveredNext() {
-  if (currentStopIndex >= stops.length) {
-    alert("All stops completed!");
-    return;
-  }
-
-  const stopId = currentStopIndex + 1;
-
-  try {
-    await fetch(`${API_URL}/mark-delivered`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stopId }),
-    });
-
-    alert(`Stop ${stopId} delivered!`);
-
-    // Move to next stop
-    currentStopIndex++;
-    highlightCurrentStop();
-
-    if (currentStopIndex < stops.length) {
-      const next = stops[currentStopIndex];
-      map.setView([next.lat, next.lon], 15);
-
-      const url = `https://www.google.com/maps/dir/?api=1&destination=${next.lat},${next.lon}&travelmode=driving`;
-      window.open(url, "_blank");
-    } else {
-      alert("All stops completed!");
+    #map {
+      height: 80vh;
+      width: 100%;
     }
-  } catch (err) {
-    console.error(err);
-    alert("Failed to mark stop delivered");
-  }
-}
 
-// ----------------------
-// Decode polyline
-// ----------------------
-function decodePolyline(str, precision = 5) {
-  let index = 0, lat = 0, lng = 0, coordinates = [];
-  let shift = 0, result = 0, byte = null;
-  const factor = Math.pow(10, -precision);
+    #controls {
+      padding: 10px;
+    }
 
-  while (index < str.length) {
-    byte = null; shift = 0; result = 0;
-    do {
-      byte = str.charCodeAt(index++) - 63;
-      result |= (byte & 0x1f) << shift;
-      shift += 5;
-    } while (byte >= 0x20);
-    lat += ((result & 1) ? ~(result >> 1) : (result >> 1));
+    textarea {
+      width: 100%;
+      height: 80px;
+    }
 
-    shift = 0; result = 0;
-    do {
-      byte = str.charCodeAt(index++) - 63;
-      result |= (byte & 0x1f) << shift;
-      shift += 5;
-    } while (byte >= 0x20);
-    lng += ((result & 1) ? ~(result >> 1) : (result >> 1));
+    button {
+      width: 100%;
+      padding: 12px;
+      font-size: 18px;
+      background: #0a2b52;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
 
-    coordinates.push([lat * factor, lng * factor]);
-  }
-  return coordinates;
-}
+<body>
 
-// ----------------------
-// Add "Mark Delivered" button
-// ----------------------
-const btn = document.createElement("button");
-btn.textContent = "Mark Delivered & Next Stop";
-btn.className = "bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700 mt-4";
-btn.onclick = markDeliveredNext;
-document.body.appendChild(btn);
+  <div id="controls">
+    <h3>Enter Stops (one per line)</h3>
+    <textarea id="stops"></textarea>
+    <button onclick="loadRoute()">Load Route</button>
+  </div>
 
-</script>
+  <div id="map"></div>
+
+  <!-- Leaflet JS (IMPORTANT: must load BEFORE your JS) -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-o9N1j7kGStGxmFjM3iC6low0Qo7NQYIY01JY1J8Jp0I="
+    crossorigin=""
+  ></script>
+
+  <!-- Your Script -->
+  <script>
+    const API_BASE = "https://mm-courier-route-planner.onrender.com";
+
+    // Initialize map
+    const map = L.map("map").setView([-26.2041, 28.0473], 10);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+    }).addTo(map);
+
+    let polyline = null;
+
+    async function loadRoute() {
+      const rawStops = document.getElementById("stops").value.trim().split("\n");
+
+      if (rawStops.length < 2) {
+        alert("Please enter at least 2 stops");
+        return;
+      }
+
+      // Geocode each stop
+      const geocoded = [];
+      for (let address of rawStops) {
+        let r = await fetch(API_BASE + "/geocode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address }),
+        });
+        geocoded.push(await r.json());
+      }
+
+      // Request optimized route
+      let r = await fetch(API_BASE + "/optimize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stops: geocoded }),
+      });
+      let directions = await r.json();
+
+      if (polyline) map.removeLayer(polyline);
+
+      // Extract polyline coordinates
+      const points = [];
+      directions.routes[0].legs.forEach((leg) => {
+        leg.steps.forEach((step) => {
+          step.polyline.points.split("").forEach(() => {}); // ignore decode on server
+        });
+      });
+
+      // decode overview polyline (easier)
+      const decoded = decodePolyline(directions.routes[0].overview_polyline.points);
+
+      polyline = L.polyline(decoded, { color: "blue", weight: 5 }).addTo(map);
+      map.fitBounds(polyline.getBounds());
+    }
+
+    // Polyline decoder
+    function decodePolyline(encoded) {
+      let points = [];
+      let index = 0, lat = 0, lng = 0;
+
+      while (index < encoded.length) {
+        let b, shift = 0, result = 0;
+        do {
+          b = encoded.charCodeAt(index++) - 63;
+          result |= (b & 0x1f) << shift;
+          shift += 5;
+        } while (b >= 0x20);
+        let dlat = (result & 1) ? ~(result >> 1) : (result >> 1);
+        lat += dlat;
+
+        shift = 0;
+        result = 0;
+        do {
+          b = encoded.charCodeAt(index++) - 63;
+          result |= (b & 0x1f) << shift;
+          shift += 5;
+        } while (b >= 0x20);
+        let dlng = (result & 1) ? ~(result >> 1) : (result >> 1);
+        lng += dlng;
+
+        points.push([lat / 1e5, lng / 1e5]);
+      }
+
+      return points;
+    }
+  </script>
+
+</body>
+</html>
