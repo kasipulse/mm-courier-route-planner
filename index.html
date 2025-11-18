@@ -1,186 +1,271 @@
-<script>
-const API_URL = "https://mm-courier-route-planner.onrender.com";
-let map, stops = [], markers = [], routeLine = null, autocomplete;
-let currentStopIndex = 0;
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+  <title>MM Courier Route Planner</title>
 
-// -------------------------  
-// Initialize Map & Resize
-// -------------------------
-function initMap() {
-  map = L.map("map").setView([-26.2041, 28.0473], 12);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
-  resizeMap();
-  window.addEventListener("resize", resizeMap);
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
 
-  // Mobile keyboard handling
-  const bottomControls = document.getElementById("bottomControls");
-  const newAddress = document.getElementById("newAddress");
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
+    }
 
-  newAddress.addEventListener("focus", () => {
-    setTimeout(() => {
-      const kbHeight = 300; // approximate keyboard height
-      document.getElementById("map").style.height = `calc(100vh - ${bottomControls.offsetHeight + kbHeight}px)`;
-      map.invalidateSize();
-      document.getElementById("sidebar").style.bottom = `${kbHeight}px`;
-    }, 300);
-  });
+    #map {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 1; /* behind UI */
+    }
 
-  newAddress.addEventListener("blur", () => {
-    resizeMap();
-    document.getElementById("sidebar").style.bottom = `0`;
-  });
-}
+    #sidebar {
+      transition: transform 0.3s ease;
+      z-index: 50;
+    }
 
-function resizeMap() {
-  const bottomControls = document.getElementById("bottomControls");
-  const bottomHeight = bottomControls.offsetHeight + 32;
-  document.getElementById("map").style.height = `calc(100vh - ${bottomHeight}px)`;
-  if (map) map.invalidateSize();
-}
+    .sidebar-hidden { transform: translateX(-100%); }
+    .sidebar-visible { transform: translateX(0); }
 
-// -------------------------
-// Google Places Autocomplete
-// -------------------------
-function initAutocomplete() {
-  autocomplete = new google.maps.places.Autocomplete(
-    document.getElementById("newAddress"),
-    { types: ["geocode"] }
-  );
-}
+    /* Bottom controls styling */
+    #bottomControls {
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
 
-// -------------------------
-// Add Stop
-// -------------------------
-function addMarker(lat, lon) {
-  const marker = L.marker([lat, lon]).addTo(map);
-  markers.push(marker);
-}
+    input:focus {
+      outline: 2px solid #0F99DA;
+    }
 
-function updateSidebar() {
-  const list = document.getElementById("stopList");
-  list.innerHTML = "";
-  stops.forEach((s, index) => {
-    const div = document.createElement("div");
-    div.className = "p-2 border rounded flex justify-between items-center";
-    div.innerHTML = `<span class="font-semibold">Stop ${index + 1}</span><button class="text-red-600 font-bold">X</button>`;
-    div.onclick = () => map.setView([s.lat, s.lon], 14);
-    div.querySelector("button").onclick = (e) => {
-      e.stopPropagation();
-      stops.splice(index, 1);
-      map.removeLayer(markers[index]);
-      markers.splice(index, 1);
-      updateSidebar();
-    };
-    list.appendChild(div);
-  });
-}
+    /* Mobile-friendly adjustments */
+    @media (max-width: 640px) {
+      #sidebar { width: 80%; }
+      #bottomControls { width: 90%; }
+    }
+  </style>
 
-document.getElementById("addStop").onclick = () => {
-  const place = autocomplete.getPlace();
-  if (!place?.geometry) return alert("Select a valid address.");
-  const lat = place.geometry.location.lat();
-  const lon = place.geometry.location.lng();
-  stops.push({ lat, lon });
-  addMarker(lat, lon);
-  updateSidebar();
-  document.getElementById("newAddress").value = "";
-};
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-// -------------------------
-// Load Route
-// -------------------------
-document.getElementById("loadRoute").onclick = async () => {
-  if (stops.length < 2) return alert("Add at least 2 stops.");
-  const res = await fetch(`${API_URL}/optimize`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ stops }),
-  });
-  const data = await res.json();
-  const route = data.routes?.[0];
-  if (!route) return alert("Route not found.");
+  <!-- Google Places API -->
+  <script
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete"
+    defer>
+  </script>
+</head>
+<body class="bg-gray-100 flex overflow-hidden">
 
-  const coords = decodePolyline(route.overview_polyline.points);
-  if (routeLine) map.removeLayer(routeLine);
-  routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
-  map.fitBounds(routeLine.getBounds());
+  <!-- Sidebar -->
+  <div id="sidebar" class="w-64 bg-white shadow-xl p-4 sidebar-hidden fixed h-screen overflow-y-auto">
+    <h2 class="text-lg font-bold mb-2 text-blue-800">📍 Stops</h2>
+    <div id="stopList" class="space-y-3"></div>
 
-  document.getElementById("totalDistance").innerText =
-    route.legs.reduce((a, b) => a + b.distance.value, 0) / 1000 + " km";
+    <div class="mt-4 border-t pt-4">
+      <p class="text-sm font-semibold">Total Distance:</p>
+      <p id="totalDistance" class="text-lg text-blue-700">—</p>
 
-  document.getElementById("totalTime").innerText =
-    Math.round(route.legs.reduce((a, b) => a + b.duration.value, 0) / 60) + " mins";
+      <p class="text-sm font-semibold mt-2">Estimated Time:</p>
+      <p id="totalTime" class="text-lg text-blue-700">—</p>
+    </div>
 
-  currentStopIndex = 0; // reset progress
-};
+    <button id="navBtn" class="mt-6 w-full bg-green-700 text-white py-2 rounded-lg text-center font-semibold">
+      Start Navigation
+    </button>
+  </div>
 
-// -------------------------
-// Start Navigation from current GPS
-// -------------------------
-document.getElementById("navBtn").onclick = () => {
-  if (!stops.length) return alert("Add at least 1 stop.");
-  navigator.geolocation.getCurrentPosition(pos => {
-    const { latitude, longitude } = pos.coords;
-    navigateToCurrentStop(latitude, longitude);
-  }, () => {
-    const { lat, lon } = stops[currentStopIndex];
-    navigateToCurrentStop(lat, lon);
-  });
-};
+  <!-- Map -->
+  <div id="map"></div>
 
-function navigateToCurrentStop(startLat, startLon) {
-  if (currentStopIndex >= stops.length) return alert("All stops completed!");
-  const destination = stops[currentStopIndex];
-  const remaining = stops.slice(currentStopIndex + 1);
-  const waypoints = remaining.map(s => `${s.lat},${s.lon}`).join("|");
-  const url = `https://www.google.com/maps/dir/?api=1&origin=${startLat},${startLon}&destination=${destination.lat},${destination.lon}&waypoints=${waypoints}&travelmode=driving`;
-  window.open(url, "_blank");
-}
+  <!-- Top Controls -->
+  <div class="absolute top-4 left-4 z-50 flex gap-2">
+    <button id="toggleSidebar" class="bg-white shadow px-4 py-2 rounded-lg font-semibold">☰ Stops</button>
+  </div>
 
-// -------------------------
-// Mark Delivered & Next Stop
-// -------------------------
-document.getElementById("nextStopBtn").onclick = () => {
-  if (currentStopIndex >= stops.length) return alert("All stops completed!");
-  alert(`Stop ${currentStopIndex + 1} marked delivered!`);
-  currentStopIndex++;
-  if (currentStopIndex < stops.length) {
-    const next = stops[currentStopIndex];
-    map.setView([next.lat, next.lon], 15);
-  } else alert("All stops completed!");
-};
+  <!-- Bottom Controls -->
+  <div id="bottomControls" class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white shadow-xl p-4 rounded-lg w-11/12 max-w-lg">
+    <input id="newAddress" type="text" placeholder="Enter address" class="border px-3 py-2 rounded w-full mb-2" />
 
-// -------------------------
-// Sidebar toggle
-// -------------------------
-document.getElementById("toggleSidebar").onclick = () => {
-  const sb = document.getElementById("sidebar");
-  sb.classList.toggle("sidebar-visible");
-  sb.classList.toggle("sidebar-hidden");
-};
+    <button id="addStop" class="w-full bg-blue-700 text-white py-2 rounded-lg font-semibold">
+      Add Stop
+    </button>
 
-// -------------------------
-// Polyline decode
-// -------------------------
-function decodePolyline(str, precision = 5) {
-  let index = 0, lat = 0, lng = 0, coordinates = [];
-  const factor = Math.pow(10, precision);
-  while (index < str.length) {
-    let result = 0, shift = 0, byte;
-    do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
-    const dLat = (result & 1 ? ~(result >> 1) : (result >> 1)); lat += dLat;
-    result = 0; shift = 0;
-    do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
-    const dLng = (result & 1 ? ~(result >> 1) : (result >> 1)); lng += dLng;
-    coordinates.push([lat / factor, lng / factor]);
-  }
-  return coordinates;
-}
+    <button id="loadRoute" class="w-full bg-green-700 text-white py-2 rounded-lg font-semibold">
+      Load Optimized Route
+    </button>
 
-// -------------------------
-// Init everything on DOM load
-// -------------------------
-document.addEventListener("DOMContentLoaded", () => {
-  initMap();
-});
-</script>
+    <button id="markDeliveredBtn" class="w-full bg-yellow-500 text-white py-2 rounded-lg font-semibold mt-2">
+      Mark Delivered
+    </button>
+
+    <button id="nextStopBtn" class="w-full bg-purple-700 text-white py-2 rounded-lg font-semibold mt-2">
+      Next Stop
+    </button>
+  </div>
+
+  <script>
+    const API_URL = "https://mm-courier-route-planner.onrender.com";
+    let map, stops = [], markers = [], routeLine = null, autocomplete;
+    let currentStopIndex = 0;
+
+    // -------------------------
+    // Initialize Map & Resize
+    // -------------------------
+    function initMap() {
+      map = L.map("map").setView([-26.2041, 28.0473], 12);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+      resizeMap();
+      window.addEventListener("resize", resizeMap);
+    }
+
+    function resizeMap() {
+      const bottomControls = document.getElementById("bottomControls");
+      const bottomHeight = bottomControls.offsetHeight + 32;
+      document.getElementById("map").style.height = `calc(100vh - ${bottomHeight}px)`;
+      if (map) map.invalidateSize();
+    }
+
+    // -------------------------
+    // Google Places Autocomplete
+    // -------------------------
+    function initAutocomplete() {
+      autocomplete = new google.maps.places.Autocomplete(
+        document.getElementById("newAddress"),
+        { types: ["geocode"] }
+      );
+    }
+
+    // -------------------------
+    // Add Stop
+    // -------------------------
+    function addMarker(lat, lon) {
+      const marker = L.marker([lat, lon]).addTo(map);
+      markers.push(marker);
+    }
+
+    function updateSidebar() {
+      const list = document.getElementById("stopList");
+      list.innerHTML = "";
+      stops.forEach((s, index) => {
+        const div = document.createElement("div");
+        div.className = "p-2 border rounded flex justify-between items-center";
+        div.innerHTML = `<span class="font-semibold">Stop ${index + 1}</span><button class="text-red-600 font-bold">X</button>`;
+        div.onclick = () => map.setView([s.lat, s.lon], 14);
+        div.querySelector("button").onclick = (e) => {
+          e.stopPropagation();
+          stops.splice(index, 1);
+          map.removeLayer(markers[index]);
+          markers.splice(index, 1);
+          updateSidebar();
+        };
+        list.appendChild(div);
+      });
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      initMap();
+
+      document.getElementById("addStop").onclick = () => {
+        const place = autocomplete.getPlace();
+        if (!place?.geometry) return alert("Select a valid address.");
+        const lat = place.geometry.location.lat();
+        const lon = place.geometry.location.lng();
+        stops.push({ lat, lon });
+        addMarker(lat, lon);
+        updateSidebar();
+        document.getElementById("newAddress").value = "";
+      };
+
+      document.getElementById("loadRoute").onclick = async () => {
+        if (stops.length < 2) return alert("Add at least 2 stops.");
+        const res = await fetch(`${API_URL}/optimize`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stops }),
+        });
+        const data = await res.json();
+        const route = data.routes?.[0];
+        if (!route) return alert("Route not found.");
+
+        const coords = decodePolyline(route.overview_polyline.points);
+        if (routeLine) map.removeLayer(routeLine);
+        routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
+        map.fitBounds(routeLine.getBounds());
+
+        document.getElementById("totalDistance").innerText =
+          route.legs.reduce((a, b) => a + b.distance.value, 0) / 1000 + " km";
+        document.getElementById("totalTime").innerText =
+          Math.round(route.legs.reduce((a, b) => a + b.duration.value, 0) / 60) + " mins";
+
+        currentStopIndex = 0;
+      };
+
+      // -------------------------
+      // Start Navigation
+      // -------------------------
+      document.getElementById("navBtn").onclick = () => {
+        if (stops.length < 2) return alert("Add stops first.");
+        const origin = `${stops[0].lat},${stops[0].lon}`;
+        const destination = `${stops[stops.length - 1].lat},${stops[stops.length - 1].lon}`;
+        const waypoints = stops.slice(1, -1).map(s => `${s.lat},${s.lon}`).join("|");
+        const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
+        window.open(url, "_blank");
+      };
+
+      // -------------------------
+      // Sidebar toggle
+      // -------------------------
+      document.getElementById("toggleSidebar").onclick = () => {
+        const sb = document.getElementById("sidebar");
+        sb.classList.toggle("sidebar-visible");
+        sb.classList.toggle("sidebar-hidden");
+      };
+
+      // -------------------------
+      // Mark Delivered
+      // -------------------------
+      document.getElementById("markDeliveredBtn").onclick = () => {
+        if (currentStopIndex >= stops.length) return alert("All stops completed!");
+        alert(`Stop ${currentStopIndex + 1} marked delivered!`);
+      };
+
+      // -------------------------
+      // Next Stop
+      // -------------------------
+      document.getElementById("nextStopBtn").onclick = () => {
+        if (currentStopIndex >= stops.length) return alert("All stops completed!");
+        const next = stops[currentStopIndex];
+        map.setView([next.lat, next.lon], 15);
+        currentStopIndex++;
+      };
+    });
+
+    // -------------------------
+    // Polyline decode
+    // -------------------------
+    function decodePolyline(str, precision = 5) {
+      let index = 0, lat = 0, lng = 0, coordinates = [];
+      const factor = Math.pow(10, precision);
+      while (index < str.length) {
+        let result = 0, shift = 0, byte;
+        do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+        const dLat = (result & 1 ? ~(result >> 1) : (result >> 1)); lat += dLat;
+        result = 0; shift = 0;
+        do { byte = str.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20);
+        const dLng = (result & 1 ? ~(result >> 1) : (result >> 1)); lng += dLng;
+        coordinates.push([lat / factor, lng / factor]);
+      }
+      return coordinates;
+    }
+  </script>
+</body>
+</html>
