@@ -21,34 +21,37 @@
     }
 
     #map {
-      height: calc(100vh - 200px); /* leave space for bottom panel */
+      height: 100vh;
       width: 100%;
     }
 
     /* Sidebar styles */
     #sidebar {
-      width: 300px;
-      background: white;
-      padding: 1rem;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-      height: calc(100vh - 200px);
-      overflow-y: auto;
-      position: fixed;
-      left: 1rem;
-      top: 1rem;
-      z-index: 1500;
+      transition: transform 0.3s ease;
+      z-index: 1500; /* above bottom panel */
+    }
+
+    .sidebar-hidden {
+      transform: translateX(-100%);
+    }
+
+    .sidebar-visible {
+      transform: translateX(0);
     }
 
     /* Bottom panel */
     #bottomControls {
       position: fixed;
-      bottom: 0;
-      left: 0;
-      width: 100%;
+      bottom: 1rem;
+      left: 50%;
+      transform: translateX(-50%);
       background: white;
       padding: 1rem;
-      box-shadow: 0 -4px 6px rgba(0,0,0,0.1);
-      z-index: 1000;
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      width: 90%;
+      max-width: 400px;
+      z-index: 1000; /* below sidebar but above map */
     }
 
     /* Google Places autocomplete dropdown */
@@ -58,11 +61,12 @@
   </style>
 </head>
 
-<body class="bg-gray-100 flex flex-col">
+<body class="bg-gray-100 flex overflow-hidden">
 
   <!-- Sidebar -->
-  <div id="sidebar">
+  <div id="sidebar" class="w-64 bg-white shadow-xl p-4 sidebar-hidden fixed z-50 h-screen overflow-y-auto">
     <h2 class="text-lg font-bold mb-2 text-blue-800">📍 Stops</h2>
+
     <div id="stopList" class="space-y-3"></div>
 
     <div class="mt-4 border-t pt-4">
@@ -74,13 +78,19 @@
     </div>
 
     <button id="navBtn"
-      class="mt-4 w-full bg-green-700 text-white py-2 rounded-lg text-center font-semibold">
+      class="mt-6 w-full bg-green-700 text-white py-2 rounded-lg text-center font-semibold">
       Start Navigation
     </button>
   </div>
 
   <!-- Map -->
   <div id="map"></div>
+
+  <!-- Top Controls -->
+  <div class="absolute top-4 left-4 z-1600 flex gap-2">
+    <button id="toggleSidebar"
+      class="bg-white shadow px-4 py-2 rounded-lg font-semibold">☰ Stops</button>
+  </div>
 
   <!-- Bottom Controls -->
   <div id="bottomControls">
@@ -92,7 +102,7 @@
     </button>
 
     <button id="loadRoute" class="w-full bg-green-700 text-white py-2 rounded-lg font-semibold">
-      Optimize Route
+      Load Optimized Route
     </button>
   </div>
 
@@ -106,38 +116,29 @@
     let markers = [];
     let routeLine = null;
     let autocomplete;
-    let selectedPlace = null;
 
     function initAutocomplete() {
       autocomplete = new google.maps.places.Autocomplete(
         document.getElementById("newAddress"),
         { types: ["geocode"] }
       );
-
-      autocomplete.addListener("place_changed", () => {
-        selectedPlace = autocomplete.getPlace();
-      });
     }
 
     // -------------------------
     // Add Stop
     // -------------------------
     document.getElementById("addStop").onclick = () => {
-      if (!selectedPlace || !selectedPlace.geometry) {
-        return alert("Please select a valid address from the suggestions.");
-      }
+      const place = autocomplete.getPlace();
+      if (!place?.geometry) return alert("Select a valid address.");
 
-      stops.push({
-        lat: selectedPlace.geometry.location.lat(),
-        lon: selectedPlace.geometry.location.lng(),
-        name: selectedPlace.formatted_address
-      });
+      const lat = place.geometry.location.lat();
+      const lon = place.geometry.location.lng();
 
-      addMarker(selectedPlace.geometry.location.lat(), selectedPlace.geometry.location.lng());
+      stops.push({ lat, lon });
+      addMarker(lat, lon);
       updateSidebar();
 
       document.getElementById("newAddress").value = "";
-      selectedPlace = null;
     };
 
     function addMarker(lat, lon) {
@@ -157,7 +158,7 @@
         div.className = "p-2 border rounded flex justify-between items-center";
 
         div.innerHTML = `
-          <span class="font-semibold">${index + 1}. ${s.name}</span>
+          <span class="font-semibold">Stop ${index + 1}</span>
           <button class="text-red-600 font-bold">X</button>
         `;
 
@@ -178,52 +179,63 @@
     }
 
     // -------------------------
-    // Load/Optimize Route
+    // Load Route
     // -------------------------
-    document.getElementById("loadRoute").onclick = async () => {
+    document.getElementById("loadRoute").onclick = loadRoute;
+
+    async function loadRoute() {
       if (stops.length < 2) return alert("Add at least 2 stops.");
 
-      try {
-        const res = await fetch(`${API_URL}/optimize`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ stops })
-        });
+      const res = await fetch(`${API_URL}/optimize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stops }),
+      });
 
-        const data = await res.json();
-        if (!data.routes || !data.routes[0]) return alert("Route not found.");
+      const data = await res.json();
 
-        const route = data.routes[0];
-        const coords = decodePolyline(route.overview_polyline.points);
+      const route = data.routes?.[0];
+      if (!route) return alert("Route not found.");
 
-        if (routeLine) map.removeLayer(routeLine);
-        routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
-        map.fitBounds(routeLine.getBounds());
+      const coords = decodePolyline(route.overview_polyline.points);
 
-        document.getElementById("totalDistance").innerText =
-          (route.legs.reduce((a, b) => a + b.distance.value, 0) / 1000).toFixed(1) + " km";
+      if (routeLine) map.removeLayer(routeLine);
+      routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
+      map.fitBounds(routeLine.getBounds());
 
-        document.getElementById("totalTime").innerText =
-          Math.round(route.legs.reduce((a, b) => a + b.duration.value, 0) / 60) + " mins";
+      document.getElementById("totalDistance").innerText =
+        route.legs.reduce((a, b) => a + b.distance.value, 0) / 1000 + " km";
 
-      } catch (err) {
-        console.error(err);
-        alert("Failed to optimize route");
-      }
-    };
+      document.getElementById("totalTime").innerText =
+        Math.round(route.legs.reduce((a, b) => a + b.duration.value, 0) / 60) +
+        " mins";
+    }
 
     // -------------------------
-    // Start Navigation
+    // Navigation Button
     // -------------------------
     document.getElementById("navBtn").onclick = () => {
       if (stops.length < 2) return alert("Add stops first.");
 
-      stops.forEach((s, i) => {
-        addMarker(s.lat, s.lon);
-      });
+      const origin = `${stops[0].lat},${stops[0].lon}`;
+      const destination = `${stops[stops.length - 1].lat},${stops[stops.length - 1].lon}`;
+      const waypoints = stops.slice(1, -1)
+        .map(s => `${s.lat},${s.lon}`)
+        .join("|");
 
-      map.fitBounds(markers.map(m => m.getLatLng()));
-      alert("Navigation started! Use the map to follow your stops.");
+      const url =
+        `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
+
+      window.open(url, "_blank");
+    };
+
+    // -------------------------
+    // Sidebar toggle
+    // -------------------------
+    document.getElementById("toggleSidebar").onclick = () => {
+      const sb = document.getElementById("sidebar");
+      sb.classList.toggle("sidebar-visible");
+      sb.classList.toggle("sidebar-hidden");
     };
 
     // -------------------------
