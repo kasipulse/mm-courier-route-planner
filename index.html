@@ -15,49 +15,49 @@
     defer></script>
 
   <style>
-    body {
+    html, body {
+      height: 100%;
+      margin: 0;
       overflow: hidden;
-      -webkit-tap-highlight-color: transparent;
     }
 
     #map {
-      height: 100vh;
-      width: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 0; /* behind panels */
     }
 
-    /* Make sidebar slide on mobile */
     #sidebar {
       transition: transform 0.3s ease;
+      z-index: 1000; /* above map */
     }
 
-    .sidebar-hidden {
-      transform: translateX(-100%);
-    }
+    .sidebar-hidden { transform: translateX(-100%); }
+    .sidebar-visible { transform: translateX(0); }
 
-    .sidebar-visible {
-      transform: translateX(0);
+    /* Bottom controls */
+    #bottomControls {
+      z-index: 1001; /* on top of everything */
     }
   </style>
 </head>
 
-<body class="bg-gray-100 flex overflow-hidden">
+<body>
 
   <!-- Sidebar -->
   <div id="sidebar" class="w-64 bg-white shadow-xl p-4 sidebar-hidden fixed z-50 h-screen overflow-y-auto">
     <h2 class="text-lg font-bold mb-2 text-blue-800">📍 Stops</h2>
-
     <div id="stopList" class="space-y-3"></div>
-
     <div class="mt-4 border-t pt-4">
       <p class="text-sm font-semibold">Total Distance:</p>
       <p id="totalDistance" class="text-lg text-blue-700">—</p>
-
       <p class="text-sm font-semibold mt-2">Estimated Time:</p>
       <p id="totalTime" class="text-lg text-blue-700">—</p>
     </div>
-
-    <button id="navBtn"
-      class="mt-6 w-full bg-green-700 text-white py-2 rounded-lg text-center font-semibold">
+    <button id="navBtn" class="mt-6 w-full bg-green-700 text-white py-2 rounded-lg font-semibold">
       Start Navigation
     </button>
   </div>
@@ -72,7 +72,7 @@
   </div>
 
   <!-- Bottom Controls -->
-  <div class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white shadow-xl p-4 rounded-lg w-11/12 max-w-lg z-50">
+  <div id="bottomControls" class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white shadow-xl p-4 rounded-lg w-11/12 max-w-lg">
     <input id="newAddress" type="text" placeholder="Enter address"
       class="border px-3 py-2 rounded w-full mb-2" />
 
@@ -87,7 +87,6 @@
 
   <script>
     const API_URL = "https://mm-courier-route-planner.onrender.com";
-
     const map = L.map("map").setView([-26.2041, 28.0473], 12);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
@@ -103,9 +102,6 @@
       );
     }
 
-    // -------------------------
-    // Add Stop
-    // -------------------------
     document.getElementById("addStop").onclick = () => {
       const place = autocomplete.getPlace();
       if (!place?.geometry) return alert("Select a valid address.");
@@ -124,24 +120,14 @@
       markers.push(marker);
     }
 
-    // -------------------------
-    // Sidebar Stop List
-    // -------------------------
     function updateSidebar() {
       const list = document.getElementById("stopList");
       list.innerHTML = "";
-
       stops.forEach((s, index) => {
         const div = document.createElement("div");
         div.className = "p-2 border rounded flex justify-between items-center";
-
-        div.innerHTML = `
-          <span class="font-semibold">Stop ${index + 1}</span>
-          <button class="text-red-600 font-bold">X</button>
-        `;
-
+        div.innerHTML = `<span class="font-semibold">Stop ${index+1}</span><button class="text-red-600 font-bold">X</button>`;
         div.onclick = () => map.setView([s.lat, s.lon], 14);
-
         div.querySelector("button").onclick = (e) => {
           e.stopPropagation();
           stops.splice(index, 1);
@@ -149,17 +135,11 @@
           markers.splice(index, 1);
           updateSidebar();
         };
-
         list.appendChild(div);
       });
     }
 
-    // -------------------------
-    // Load Route
-    // -------------------------
-    document.getElementById("loadRoute").onclick = loadRoute;
-
-    async function loadRoute() {
+    document.getElementById("loadRoute").onclick = async () => {
       if (stops.length < 2) return alert("Add at least 2 stops.");
 
       const res = await fetch(`${API_URL}/optimize`, {
@@ -173,46 +153,31 @@
       if (!route) return alert("Route not found.");
 
       const coords = decodePolyline(route.overview_polyline.points);
-
       if (routeLine) map.removeLayer(routeLine);
       routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
       map.fitBounds(routeLine.getBounds());
 
       document.getElementById("totalDistance").innerText =
         route.legs.reduce((a, b) => a + b.distance.value, 0) / 1000 + " km";
-
       document.getElementById("totalTime").innerText =
-        Math.round(route.legs.reduce((a, b) => a + b.duration.value, 0) / 60) + " mins";
-    }
-
-    // -------------------------
-    // Navigation Button
-    // -------------------------
-    document.getElementById("navBtn").onclick = () => {
-      if (stops.length < 2) return alert("Add stops first.");
-
-      const origin = `${stops[0].lat},${stops[0].lon}`;
-      const destination = `${stops[stops.length - 1].lat},${stops[stops.length - 1].lon}`;
-      const waypoints = stops.slice(1, -1)
-        .map(s => `${s.lat},${s.lon}`)
-        .join("|");
-
-      const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
-      window.open(url, "_blank");
+        Math.round(route.legs.reduce((a, b) => a + b.duration.value, 0)/60) + " mins";
     };
 
-    // -------------------------
-    // Sidebar toggle
-    // -------------------------
+    document.getElementById("navBtn").onclick = () => {
+      if (stops.length < 2) return alert("Add stops first.");
+      const origin = `${stops[0].lat},${stops[0].lon}`;
+      const destination = `${stops[stops.length-1].lat},${stops[stops.length-1].lon}`;
+      const waypoints = stops.slice(1,-1).map(s => `${s.lat},${s.lon}`).join("|");
+      const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
+      window.open(url,"_blank");
+    };
+
     document.getElementById("toggleSidebar").onclick = () => {
       const sb = document.getElementById("sidebar");
       sb.classList.toggle("sidebar-visible");
       sb.classList.toggle("sidebar-hidden");
     };
 
-    // -------------------------
-    // Polyline decoder
-    // -------------------------
     function decodePolyline(str, precision = 5) {
       let index = 0, lat = 0, lng = 0, coordinates = [];
       const factor = Math.pow(10, precision);
@@ -224,7 +189,6 @@
           result |= (byte & 0x1f) << shift;
           shift += 5;
         } while (byte >= 0x20);
-
         const dLat = (result & 1 ? ~(result >> 1) : (result >> 1));
         lat += dLat;
 
@@ -234,11 +198,10 @@
           result |= (byte & 0x1f) << shift;
           shift += 5;
         } while (byte >= 0x20);
-
         const dLng = (result & 1 ? ~(result >> 1) : (result >> 1));
         lng += dLng;
 
-        coordinates.push([lat / factor, lng / factor]);
+        coordinates.push([lat/factor, lng/factor]);
       }
       return coordinates;
     }
