@@ -1,266 +1,160 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-<title>MM Courier Route Planner</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MM Courier In-App Navigator</title>
 
-<!-- Leaflet -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
 
-<!-- Tailwind -->
-<script src="https://cdn.tailwindcss.com"></script>
-
-<!-- Google Places -->
-<script
-  src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete"
-  defer></script>
-
-<style>
-html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  overflow: hidden;
-}
-
-/* MAP */
-#map {
-  position: fixed;
-  inset: 0;
-  z-index: 1;
-}
-
-/* AUTOCOMPLETE */
-.pac-container {
-  z-index: 3000 !important;
-}
-
-/* SIDEBAR */
-#sidebar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 260px;
-  height: 100%;
-  background: white;
-  z-index: 1100;
-  transform: translateX(-100%);
-  transition: transform 0.3s ease;
-}
-
-#sidebar.open {
-  transform: translateX(0);
-}
-
-/* BOTTOM PANEL */
-#bottomPanel {
-  position: fixed;
-  bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 92%;
-  max-width: 420px;
-  background: white;
-  padding: 12px;
-  border-radius: 12px;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.15);
-  z-index: 1000;
-}
-</style>
+  <style>
+    html, body { height: 100%; margin:0; }
+    #map { height: 100%; width: 100%; }
+    #bottomPanel {
+      position: fixed;
+      bottom: 1rem;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      max-width: 400px;
+      background: white;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      z-index: 1000;
+    }
+    #stopList { max-height: 200px; overflow-y: auto; margin-bottom: 0.5rem; }
+    .pac-container { z-index: 2000 !important; }
+  </style>
 </head>
-
 <body>
 
-<!-- MAP -->
 <div id="map"></div>
 
-<!-- SIDEBAR -->
-<div id="sidebar" class="p-4 overflow-y-auto">
-  <h2 class="font-bold text-lg mb-3">📍 Stops</h2>
-  <div id="stopList" class="space-y-2"></div>
-
-  <div class="mt-4 border-t pt-3">
-    <p class="text-sm">Distance</p>
-    <p id="totalDistance" class="font-bold text-blue-700">—</p>
-    <p class="text-sm mt-2">ETA</p>
-    <p id="totalTime" class="font-bold text-blue-700">—</p>
-  </div>
-
-  <button id="startNav"
-    class="mt-4 w-full bg-green-700 text-white py-2 rounded-lg font-semibold">
-    Start Route
-  </button>
-</div>
-
-<!-- TOGGLE -->
-<button id="toggleSidebar"
-  class="fixed top-4 left-4 bg-white px-4 py-2 rounded shadow z-[1200]">
-  ☰ Stops
-</button>
-
-<!-- BOTTOM PANEL -->
 <div id="bottomPanel">
-  <input id="addressInput" type="text"
-    placeholder="Enter delivery address"
-    class="border px-3 py-2 rounded w-full mb-2" />
+  <input id="newAddress" type="text" placeholder="Enter address" class="border px-3 py-2 rounded w-full mb-2">
+  <button id="addStop" class="w-full bg-blue-700 text-white py-2 rounded mb-2 font-semibold">Add Stop</button>
 
-  <button id="addStop"
-    class="w-full bg-blue-700 text-white py-2 rounded-lg mb-2">
-    Add Stop
-  </button>
+  <div id="stopList" class="space-y-1"></div>
 
-  <button id="optimize"
-    class="w-full bg-indigo-700 text-white py-2 rounded-lg">
-    Load Optimized Route
-  </button>
+  <button id="startRoute" class="w-full bg-green-700 text-white py-2 rounded mb-2 font-semibold">Start Route</button>
+  <button id="nextStop" class="w-full bg-yellow-500 text-white py-2 rounded mb-2 font-semibold" disabled>Next Stop</button>
+
+  <div class="flex gap-2 mt-2">
+    <button id="deliveredBtn" class="flex-1 bg-green-600 text-white py-2 rounded font-semibold" disabled>Delivered</button>
+    <button id="notDeliveredBtn" class="flex-1 bg-red-600 text-white py-2 rounded font-semibold" disabled>Not Delivered</button>
+  </div>
 </div>
 
 <script>
-const API_URL = "https://mm-courier-route-planner.onrender.com";
+  let map = L.map('map').setView([-26.2041, 28.0473], 12);
 
-let map = L.map("map").setView([-26.2041, 28.0473], 12);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
 
-let autocomplete;
-let stops = [];
-let markers = [];
-let routeLine;
-let currentStopIndex = 0;
+  let stops = [];
+  let markers = [];
+  let currentStopIndex = 0;
+  let routingControl = null;
 
-/* AUTOCOMPLETE */
-function initAutocomplete() {
-  autocomplete = new google.maps.places.Autocomplete(
-    document.getElementById("addressInput"),
-    { types: ["geocode"] }
-  );
-}
+  // Google Places Autocomplete
+  let autocomplete;
+  function initAutocomplete() {
+    autocomplete = new google.maps.places.Autocomplete(document.getElementById("newAddress"), { types: ["geocode"] });
+  }
+  // Load Google Places
+  const gmapScript = document.createElement('script');
+  gmapScript.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete`;
+  gmapScript.async = true; document.head.appendChild(gmapScript);
 
-/* ADD STOP */
-document.getElementById("addStop").onclick = () => {
-  const place = autocomplete.getPlace();
-  if (!place || !place.geometry) {
-    alert("Select an address from suggestions");
-    return;
+  // Add Stop
+  document.getElementById('addStop').onclick = () => {
+    const place = autocomplete.getPlace();
+    if(!place || !place.geometry) return alert('Select a valid address');
+    const lat = place.geometry.location.lat();
+    const lon = place.geometry.location.lng();
+    const name = place.formatted_address;
+
+    stops.push({lat, lon, name});
+    addMarker(lat, lon, name);
+    updateStopList();
+    document.getElementById('newAddress').value = '';
+  };
+
+  function addMarker(lat, lon, name) {
+    const marker = L.marker([lat, lon]).addTo(map).bindPopup(name);
+    markers.push(marker);
   }
 
-  const lat = place.geometry.location.lat();
-  const lon = place.geometry.location.lng();
-  const label = place.formatted_address;
-
-  stops.push({ lat, lon, label });
-
-  const marker = L.marker([lat, lon]).addTo(map);
-  markers.push(marker);
-
-  document.getElementById("addressInput").value = "";
-  renderStops();
-};
-
-/* RENDER STOPS */
-function renderStops() {
-  const list = document.getElementById("stopList");
-  list.innerHTML = "";
-
-  stops.forEach((s, i) => {
-    const div = document.createElement("div");
-    div.className = "p-2 border rounded text-sm flex justify-between";
-
-    div.innerHTML = `
-      <span>${i + 1}. ${s.label}</span>
-      <button class="text-red-600">✕</button>
-    `;
-
-    div.onclick = () => map.setView([s.lat, s.lon], 15);
-
-    div.querySelector("button").onclick = (e) => {
-      e.stopPropagation();
-      map.removeLayer(markers[i]);
-      markers.splice(i, 1);
-      stops.splice(i, 1);
-      renderStops();
-    };
-
-    list.appendChild(div);
-  });
-}
-
-/* OPTIMIZE ROUTE */
-document.getElementById("optimize").onclick = async () => {
-  if (stops.length < 2) {
-    alert("Add at least 2 stops");
-    return;
+  function updateStopList() {
+    const list = document.getElementById('stopList');
+    list.innerHTML = '';
+    stops.forEach((s, i) => {
+      const div = document.createElement('div');
+      div.className = "p-1 border rounded flex justify-between items-center text-sm";
+      div.innerHTML = `<span>${i+1}. ${s.name}</span><button class="text-red-600 font-bold">X</button>`;
+      div.querySelector('button').onclick = e => {
+        e.stopPropagation();
+        stops.splice(i,1);
+        map.removeLayer(markers[i]);
+        markers.splice(i,1);
+        updateStopList();
+      };
+      list.appendChild(div);
+    });
   }
 
-  const res = await fetch(`${API_URL}/optimize`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ stops })
-  });
+  // Start Route
+  document.getElementById('startRoute').onclick = () => {
+    if(stops.length < 2) return alert('Add at least 2 stops');
+    currentStopIndex = 0;
+    drawRoute();
+    enableNavigationButtons();
+  };
 
-  const data = await res.json();
-  const route = data.routes[0];
-
-  const coords = decodePolyline(route.overview_polyline.points);
-
-  if (routeLine) map.removeLayer(routeLine);
-  routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
-  map.fitBounds(routeLine.getBounds());
-
-  document.getElementById("totalDistance").innerText =
-    (route.legs.reduce((a,b)=>a+b.distance.value,0)/1000).toFixed(1)+" km";
-
-  document.getElementById("totalTime").innerText =
-    Math.round(route.legs.reduce((a,b)=>a+b.duration.value,0)/60)+" mins";
-};
-
-/* START NAVIGATION */
-document.getElementById("startNav").onclick = () => {
-  if (!stops.length) return;
-  currentStopIndex = 0;
-  navigateToCurrent();
-};
-
-/* NAVIGATE */
-function navigateToCurrent() {
-  const stop = stops[currentStopIndex];
-  map.setView([stop.lat, stop.lon], 17);
-}
-
-/* NEXT STOP (AUTO) */
-map.on("click", () => {
-  if (currentStopIndex < stops.length - 1) {
-    currentStopIndex++;
-    navigateToCurrent();
-  } else {
-    alert("Route complete 🎉");
+  function drawRoute() {
+    if(routingControl) map.removeControl(routingControl);
+    const waypoints = stops.map(s => L.latLng(s.lat,s.lon));
+    routingControl = L.Routing.control({
+      waypoints: waypoints,
+      routeWhileDragging: false,
+      show: false,
+      addWaypoints: false,
+      lineOptions: { styles: [{color:'blue', weight:4}] },
+    }).addTo(map);
   }
-});
 
-/* SIDEBAR TOGGLE */
-document.getElementById("toggleSidebar").onclick = () => {
-  document.getElementById("sidebar").classList.toggle("open");
-};
-
-/* POLYLINE DECODER */
-function decodePolyline(str) {
-  let i=0, lat=0, lng=0, coords=[];
-  while (i < str.length) {
-    let b, shift=0, result=0;
-    do { b=str.charCodeAt(i++)-63; result|=(b&0x1f)<<shift; shift+=5; }
-    while (b>=0x20);
-    lat += (result&1)?~(result>>1):(result>>1);
-
-    shift=0; result=0;
-    do { b=str.charCodeAt(i++)-63; result|=(b&0x1f)<<shift; shift+=5; }
-    while (b>=0x20);
-    lng += (result&1)?~(result>>1):(result>>1);
-
-    coords.push([lat/1e5,lng/1e5]);
+  function enableNavigationButtons() {
+    document.getElementById('nextStop').disabled = false;
+    document.getElementById('deliveredBtn').disabled = false;
+    document.getElementById('notDeliveredBtn').disabled = false;
   }
-  return coords;
-}
+
+  // Next Stop
+  document.getElementById('nextStop').onclick = () => {
+    if(currentStopIndex < stops.length - 1) {
+      currentStopIndex++;
+      map.setView([stops[currentStopIndex].lat, stops[currentStopIndex].lon], 16);
+      markers[currentStopIndex].openPopup();
+    } else {
+      alert('Route complete!');
+    }
+  };
+
+  // Delivered / Not Delivered
+  document.getElementById('deliveredBtn').onclick = () => {
+    alert(`Stop ${currentStopIndex+1} delivered!`);
+    // optionally mark visually
+    markers[currentStopIndex].setIcon(new L.Icon.Default({className:'leaflet-div-icon delivered'}));
+  };
+  document.getElementById('notDeliveredBtn').onclick = () => {
+    alert(`Stop ${currentStopIndex+1} not delivered!`);
+  };
 </script>
 
 </body>
