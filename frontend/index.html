@@ -9,7 +9,6 @@
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 
-<!-- Google Places API -->
 <script
   src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete"
   defer></script>
@@ -29,6 +28,12 @@
   }
 
   .pac-container { z-index: 2000 !important; }
+
+  .stop-item { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; border: 1px solid #ccc; border-radius: 0.25rem; margin-bottom: 0.25rem; }
+  .stop-label { font-weight: 600; flex: 1; }
+  .stop-status.pending { color: orange; }
+  .stop-status.delivered { color: green; }
+  .stop-status.not-delivered { color: red; }
 </style>
 </head>
 
@@ -71,13 +76,14 @@
     Add Stop
   </button>
 
-  <button id="loadRoute" class="w-full bg-green-700 text-white py-2 rounded-lg font-semibold">
+  <button id="loadRoute" class="w-full bg-green-700 text-white py-2 rounded-lg font-semibold mb-2">
     Load Optimized Route
   </button>
 
-  <!-- Navigation buttons (hidden initially) -->
-  <div id="navButtons" class="mt-2 hidden">
-    <p id="currentStopLabel" class="mb-2 font-semibold text-center text-blue-800"></p>
+  <!-- Navigation driver panel -->
+  <div id="driverPanel" class="hidden">
+    <h3 class="text-center font-semibold mb-2 text-blue-800">Driver Route</h3>
+    <div id="driverStops" class="max-h-60 overflow-y-auto mb-2"></div>
     <div class="flex gap-2">
       <button id="deliveredBtn" class="flex-1 bg-green-600 text-white py-2 rounded-lg font-semibold">Delivered</button>
       <button id="notDeliveredBtn" class="flex-1 bg-red-600 text-white py-2 rounded-lg font-semibold">Not Delivered</button>
@@ -119,6 +125,7 @@ document.getElementById("addStop").onclick = () => {
   stops.push({ label, lat, lon, status: "pending" });
   addMarker(lat, lon);
   updateSidebar();
+  updateDriverPanel();
   document.getElementById("newAddress").value = "";
 };
 
@@ -133,7 +140,6 @@ function addMarker(lat, lon) {
 function updateSidebar() {
   const list = document.getElementById("stopList");
   list.innerHTML = "";
-
   stops.forEach((s, index) => {
     const div = document.createElement("div");
     div.className = "p-2 border rounded flex justify-between items-center";
@@ -144,12 +150,13 @@ function updateSidebar() {
     `;
 
     div.onclick = () => map.setView([s.lat, s.lon], 14);
-    div.querySelector("button").onclick = (e) => {
+    div.querySelector("button").onclick = e => {
       e.stopPropagation();
       stops.splice(index, 1);
       map.removeLayer(markers[index]);
       markers.splice(index, 1);
       updateSidebar();
+      updateDriverPanel();
     };
 
     list.appendChild(div);
@@ -167,7 +174,6 @@ document.getElementById("loadRoute").onclick = async () => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ stops }),
   });
-
   const data = await res.json();
   const route = data.routes?.[0];
   if (!route) return alert("Route not found.");
@@ -185,59 +191,67 @@ document.getElementById("loadRoute").onclick = async () => {
 };
 
 // -------------------------
+// Driver panel
+// -------------------------
+function updateDriverPanel() {
+  const container = document.getElementById("driverStops");
+  container.innerHTML = "";
+  stops.forEach((s, i) => {
+    const div = document.createElement("div");
+    div.className = "stop-item";
+    div.innerHTML = `<span class="stop-label">${s.label}</span>
+      <span class="stop-status ${s.status.replace(" ", "-")}">${s.status}</span>`;
+    container.appendChild(div);
+  });
+}
+
+// -------------------------
 // Start navigation
 // -------------------------
-document.getElementById("navBtn").onclick = startNavigation;
-
-function startNavigation() {
+document.getElementById("navBtn").onclick = () => {
   if (stops.length < 2) return alert("Add stops first.");
-
   currentStopIndex = 0;
-  document.getElementById("bottomControls").querySelector("input").style.display = "none";
+
+  document.getElementById("newAddress").style.display = "none";
   document.getElementById("addStop").style.display = "none";
   document.getElementById("loadRoute").style.display = "none";
-  document.getElementById("navButtons").classList.remove("hidden");
+  document.getElementById("driverPanel").classList.remove("hidden");
 
-  showCurrentStop();
+  highlightCurrentStop();
+};
+
+// Highlight current stop in panel
+function highlightCurrentStop() {
+  const container = document.getElementById("driverStops");
+  Array.from(container.children).forEach((div, i) => {
+    div.style.backgroundColor = i === currentStopIndex ? "#e0f2fe" : "";
+  });
 }
 
-function showCurrentStop() {
-  if (currentStopIndex >= stops.length) {
-    alert("✅ Route completed!");
-    document.getElementById("navButtons").classList.add("hidden");
-    return;
-  }
-
-  const stop = stops[currentStopIndex];
-  document.getElementById("currentStopLabel").innerText = `Next Stop: ${stop.label}`;
-}
-
-// -------------------------
-// Delivered / Not Delivered
-// -------------------------
+// Delivered / Not Delivered buttons
 document.getElementById("deliveredBtn").onclick = () => markStop("delivered");
 document.getElementById("notDeliveredBtn").onclick = () => markStop("not delivered");
 
 function markStop(status) {
   stops[currentStopIndex].status = status;
+  updateDriverPanel();
 
   const stop = stops[currentStopIndex];
   const origin = `${stop.lat},${stop.lon}`;
-  let destination, waypoints;
-
   currentStopIndex++;
 
   if (currentStopIndex < stops.length) {
     const nextStop = stops[currentStopIndex];
-    destination = `${nextStop.lat},${nextStop.lon}`;
-    waypoints = stops.slice(currentStopIndex+1).map(s => `${s.lat},${s.lon}`).join("|");
+    const destination = `${nextStop.lat},${nextStop.lon}`;
+    const waypoints = stops.slice(currentStopIndex+1).map(s=>`${s.lat},${s.lon}`).join("|");
 
     const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
     window.open(url, "_blank");
-    showCurrentStop();
+
+    highlightCurrentStop();
   } else {
     alert("✅ All stops completed!");
-    document.getElementById("navButtons").classList.add("hidden");
+    document.getElementById("driverPanel").classList.add("hidden");
   }
 }
 
@@ -260,13 +274,11 @@ function decodePolyline(str, precision = 5) {
   while (index<str.length){
     let result=0, shift=0, byte;
     do{ byte=str.charCodeAt(index++)-63; result|=(byte&0x1f)<<shift; shift+=5; } while(byte>=0x20);
-    const dLat=(result&1?~(result>>1):(result>>1));
-    lat+=dLat;
+    const dLat=(result&1?~(result>>1):(result>>1)); lat+=dLat;
 
     result=0; shift=0;
     do{ byte=str.charCodeAt(index++)-63; result|=(byte&0x1f)<<shift; shift+=5; } while(byte>=0x20);
-    const dLng=(result&1?~(result>>1):(result>>1));
-    lng+=dLng;
+    const dLng=(result&1?~(result>>1):(result>>1)); lng+=dLng;
 
     coordinates.push([lat/factor,lng/factor]);
   }
