@@ -1,136 +1,197 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
-  <title>MM Courier – In-App Navigation</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>MM Courier Route Planner</title>
 
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-  <!-- Tailwind -->
-  <script src="https://cdn.tailwindcss.com"></script>
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Google Places -->
-  <script
-    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete"
-    defer></script>
+<!-- Google Places -->
+<script
+  src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete"
+  defer></script>
 
-  <style>
-    body { overflow: hidden; }
-    #map { height: 100vh; width: 100%; }
-    .pac-container { z-index: 3000 !important; }
-  </style>
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* MAP */
+#map {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+}
+
+/* AUTOCOMPLETE */
+.pac-container {
+  z-index: 3000 !important;
+}
+
+/* SIDEBAR */
+#sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 260px;
+  height: 100%;
+  background: white;
+  z-index: 1100;
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+}
+
+#sidebar.open {
+  transform: translateX(0);
+}
+
+/* BOTTOM PANEL */
+#bottomPanel {
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 92%;
+  max-width: 420px;
+  background: white;
+  padding: 12px;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+  z-index: 1000;
+}
+</style>
 </head>
 
-<body class="bg-gray-100">
+<body>
 
 <!-- MAP -->
 <div id="map"></div>
 
-<!-- TOP -->
-<div class="absolute top-4 left-4 z-50">
-  <button id="toggleSidebar" class="bg-white px-4 py-2 rounded shadow">☰ Stops</button>
-</div>
-
 <!-- SIDEBAR -->
-<div id="sidebar"
-  class="fixed left-0 top-0 h-full w-64 bg-white shadow-xl p-4 transform -translate-x-full transition z-50 overflow-y-auto">
-  <h2 class="font-bold text-lg mb-2">📍 Stops</h2>
+<div id="sidebar" class="p-4 overflow-y-auto">
+  <h2 class="font-bold text-lg mb-3">📍 Stops</h2>
   <div id="stopList" class="space-y-2"></div>
 
-  <div class="mt-4 border-t pt-4 text-sm">
-    <div>Distance: <span id="totalDistance">—</span></div>
-    <div>ETA: <span id="totalTime">—</span></div>
+  <div class="mt-4 border-t pt-3">
+    <p class="text-sm">Distance</p>
+    <p id="totalDistance" class="font-bold text-blue-700">—</p>
+    <p class="text-sm mt-2">ETA</p>
+    <p id="totalTime" class="font-bold text-blue-700">—</p>
   </div>
+
+  <button id="startNav"
+    class="mt-4 w-full bg-green-700 text-white py-2 rounded-lg font-semibold">
+    Start Route
+  </button>
 </div>
 
+<!-- TOGGLE -->
+<button id="toggleSidebar"
+  class="fixed top-4 left-4 bg-white px-4 py-2 rounded shadow z-[1200]">
+  ☰ Stops
+</button>
+
 <!-- BOTTOM PANEL -->
-<div class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-white shadow-xl rounded-lg p-4 w-11/12 max-w-md z-40">
-  <input id="newAddress" class="border p-2 rounded w-full mb-2" placeholder="Enter address" />
-  <button id="addStop" class="bg-blue-700 text-white w-full py-2 rounded mb-2">Add Stop</button>
-  <button id="optimizeBtn" class="bg-green-700 text-white w-full py-2 rounded mb-2">
-    Optimize Route
+<div id="bottomPanel">
+  <input id="addressInput" type="text"
+    placeholder="Enter delivery address"
+    class="border px-3 py-2 rounded w-full mb-2" />
+
+  <button id="addStop"
+    class="w-full bg-blue-700 text-white py-2 rounded-lg mb-2">
+    Add Stop
   </button>
 
-  <div id="navPanel" class="hidden mt-3 border-t pt-3">
-    <div class="text-sm mb-1">Next Stop Distance:</div>
-    <div id="distanceToStop" class="text-lg font-bold mb-2">—</div>
-
-    <button id="deliveredBtn" class="bg-green-600 text-white w-full py-2 rounded mb-2">
-      ✔ Delivered
-    </button>
-    <button id="failedBtn" class="bg-red-600 text-white w-full py-2 rounded mb-2">
-      ✖ Not Delivered
-    </button>
-
-    <button id="googleBtn" class="bg-gray-800 text-white w-full py-2 rounded">
-      Open in Google Maps
-    </button>
-  </div>
+  <button id="optimize"
+    class="w-full bg-indigo-700 text-white py-2 rounded-lg">
+    Load Optimized Route
+  </button>
 </div>
 
 <script>
-/* ---------------- CONFIG ---------------- */
 const API_URL = "https://mm-courier-route-planner.onrender.com";
-const AUTO_DELIVER_RADIUS = 30;
 
-/* ---------------- MAP ---------------- */
-const map = L.map("map").setView([-26.2041, 28.0473], 12);
+let map = L.map("map").setView([-26.2041, 28.0473], 12);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
+let autocomplete;
 let stops = [];
 let markers = [];
-let routeLine = null;
-let navLine = null;
+let routeLine;
 let currentStopIndex = 0;
-let watchId = null;
-let autocomplete;
 
-/* ---------------- AUTOCOMPLETE ---------------- */
+/* AUTOCOMPLETE */
 function initAutocomplete() {
   autocomplete = new google.maps.places.Autocomplete(
-    document.getElementById("newAddress")
+    document.getElementById("addressInput"),
+    { types: ["geocode"] }
   );
 }
 
-/* ---------------- UI ---------------- */
-toggleSidebar.onclick = () =>
-  sidebar.classList.toggle("-translate-x-full");
-
-/* ---------------- STOPS ---------------- */
-addStop.onclick = () => {
+/* ADD STOP */
+document.getElementById("addStop").onclick = () => {
   const place = autocomplete.getPlace();
-  if (!place?.geometry) return alert("Select address from list");
+  if (!place || !place.geometry) {
+    alert("Select an address from suggestions");
+    return;
+  }
 
-  stops.push({
-    lat: place.geometry.location.lat(),
-    lon: place.geometry.location.lng(),
-    label: place.formatted_address
-  });
+  const lat = place.geometry.location.lat();
+  const lon = place.geometry.location.lng();
+  const label = place.formatted_address;
 
-  redrawStops();
-  newAddress.value = "";
+  stops.push({ lat, lon, label });
+
+  const marker = L.marker([lat, lon]).addTo(map);
+  markers.push(marker);
+
+  document.getElementById("addressInput").value = "";
+  renderStops();
 };
 
-function redrawStops() {
-  stopList.innerHTML = "";
-  markers.forEach(m => map.removeLayer(m));
-  markers = [];
+/* RENDER STOPS */
+function renderStops() {
+  const list = document.getElementById("stopList");
+  list.innerHTML = "";
 
   stops.forEach((s, i) => {
-    markers.push(L.marker([s.lat, s.lon]).addTo(map));
-    const d = document.createElement("div");
-    d.className = "p-2 border rounded";
-    d.innerHTML = `<b>${i+1}.</b> ${s.label}`;
-    stopList.appendChild(d);
+    const div = document.createElement("div");
+    div.className = "p-2 border rounded text-sm flex justify-between";
+
+    div.innerHTML = `
+      <span>${i + 1}. ${s.label}</span>
+      <button class="text-red-600">✕</button>
+    `;
+
+    div.onclick = () => map.setView([s.lat, s.lon], 15);
+
+    div.querySelector("button").onclick = (e) => {
+      e.stopPropagation();
+      map.removeLayer(markers[i]);
+      markers.splice(i, 1);
+      stops.splice(i, 1);
+      renderStops();
+    };
+
+    list.appendChild(div);
   });
 }
 
-/* ---------------- OPTIMIZE ---------------- */
-optimizeBtn.onclick = async () => {
-  if (stops.length < 2) return alert("Add 2+ stops");
+/* OPTIMIZE ROUTE */
+document.getElementById("optimize").onclick = async () => {
+  if (stops.length < 2) {
+    alert("Add at least 2 stops");
+    return;
+  }
 
   const res = await fetch(`${API_URL}/optimize`, {
     method: "POST",
@@ -141,105 +202,66 @@ optimizeBtn.onclick = async () => {
   const data = await res.json();
   const route = data.routes[0];
 
-  // reorder stops
-  if (route.waypoint_order?.length) {
-    const start = stops[0];
-    const end = stops[stops.length-1];
-    const mid = stops.slice(1,-1);
-    const ordered = route.waypoint_order.map(i => mid[i]);
-    stops = [start, ...ordered, end];
-  }
-
-  redrawStops();
-
   const coords = decodePolyline(route.overview_polyline.points);
+
   if (routeLine) map.removeLayer(routeLine);
-  routeLine = L.polyline(coords,{color:"blue"}).addTo(map);
+  routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
   map.fitBounds(routeLine.getBounds());
 
-  totalDistance.innerText =
+  document.getElementById("totalDistance").innerText =
     (route.legs.reduce((a,b)=>a+b.distance.value,0)/1000).toFixed(1)+" km";
-  totalTime.innerText =
+
+  document.getElementById("totalTime").innerText =
     Math.round(route.legs.reduce((a,b)=>a+b.duration.value,0)/60)+" mins";
-
-  startNavigation();
 };
 
-/* ---------------- NAVIGATION ---------------- */
-function startNavigation() {
+/* START NAVIGATION */
+document.getElementById("startNav").onclick = () => {
+  if (!stops.length) return;
   currentStopIndex = 0;
-  navPanel.classList.remove("hidden");
-
-  watchId = navigator.geolocation.watchPosition(pos => {
-    const { latitude, longitude } = pos.coords;
-    const stop = stops[currentStopIndex];
-
-    const d = distanceMeters(
-      {lat:latitude,lon:longitude},
-      stop
-    );
-
-    distanceToStop.innerText =
-      d < 1000 ? Math.round(d)+" m" : (d/1000).toFixed(2)+" km";
-
-    if (navLine) map.removeLayer(navLine);
-    navLine = L.polyline(
-      [[latitude,longitude],[stop.lat,stop.lon]],
-      {color:"red",dashArray:"6,6"}
-    ).addTo(map);
-
-    map.panTo([latitude,longitude]);
-
-    if (d < AUTO_DELIVER_RADIUS) {
-      deliveredBtn.disabled = false;
-    }
-  }, err => alert("GPS error"), { enableHighAccuracy:true });
-}
-
-/* ---------------- DELIVERY ---------------- */
-deliveredBtn.onclick = nextStop;
-failedBtn.onclick = nextStop;
-
-function nextStop() {
-  currentStopIndex++;
-  if (currentStopIndex >= stops.length) {
-    navigator.geolocation.clearWatch(watchId);
-    alert("Route complete 🎉");
-    return;
-  }
-}
-
-/* ---------------- GOOGLE MAPS ---------------- */
-googleBtn.onclick = () => {
-  const s = stops[currentStopIndex];
-  window.open(`https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}`,"_blank");
+  navigateToCurrent();
 };
 
-/* ---------------- HELPERS ---------------- */
-function distanceMeters(a,b){
-  const R=6371000;
-  const dLat=(b.lat-a.lat)*Math.PI/180;
-  const dLon=(b.lon-a.lon)*Math.PI/180;
-  const lat1=a.lat*Math.PI/180;
-  const lat2=b.lat*Math.PI/180;
-  const x=Math.sin(dLat/2)**2+
-          Math.sin(dLon/2)**2*Math.cos(lat1)*Math.cos(lat2);
-  return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+/* NAVIGATE */
+function navigateToCurrent() {
+  const stop = stops[currentStopIndex];
+  map.setView([stop.lat, stop.lon], 17);
 }
 
-function decodePolyline(str){
-  let i=0,lat=0,lng=0,arr=[];
-  while(i<str.length){
-    let b,s=0,r=0;
-    do{b=str.charCodeAt(i++)-63;r|=(b&0x1f)<<s;s+=5;}while(b>=0x20);
-    lat+=r&1?~(r>>1):(r>>1);
-    s=0;r=0;
-    do{b=str.charCodeAt(i++)-63;r|=(b&0x1f)<<s;s+=5;}while(b>=0x20);
-    lng+=r&1?~(r>>1):(r>>1);
-    arr.push([lat/1e5,lng/1e5]);
+/* NEXT STOP (AUTO) */
+map.on("click", () => {
+  if (currentStopIndex < stops.length - 1) {
+    currentStopIndex++;
+    navigateToCurrent();
+  } else {
+    alert("Route complete 🎉");
   }
-  return arr;
+});
+
+/* SIDEBAR TOGGLE */
+document.getElementById("toggleSidebar").onclick = () => {
+  document.getElementById("sidebar").classList.toggle("open");
+};
+
+/* POLYLINE DECODER */
+function decodePolyline(str) {
+  let i=0, lat=0, lng=0, coords=[];
+  while (i < str.length) {
+    let b, shift=0, result=0;
+    do { b=str.charCodeAt(i++)-63; result|=(b&0x1f)<<shift; shift+=5; }
+    while (b>=0x20);
+    lat += (result&1)?~(result>>1):(result>>1);
+
+    shift=0; result=0;
+    do { b=str.charCodeAt(i++)-63; result|=(b&0x1f)<<shift; shift+=5; }
+    while (b>=0x20);
+    lng += (result&1)?~(result>>1):(result>>1);
+
+    coords.push([lat/1e5,lng/1e5]);
+  }
+  return coords;
 }
 </script>
+
 </body>
 </html>
