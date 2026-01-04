@@ -37,27 +37,6 @@
     .sidebar-visible {
       transform: translateX(0);
     }
-
-    /* Mobile bottom panel adjustments */
-    @media (max-width: 640px) {
-      #bottomControls {
-        width: 90%;
-        max-width: 340px;
-        padding: 0.75rem;
-      }
-
-      #bottomControls button {
-        padding-top: 0.5rem;
-        padding-bottom: 0.5rem;
-        font-size: 0.95rem;
-      }
-
-      #bottomControls input {
-        padding-top: 0.45rem;
-        padding-bottom: 0.45rem;
-        font-size: 0.95rem;
-      }
-    }
   </style>
 </head>
 
@@ -93,10 +72,7 @@
   </div>
 
   <!-- Bottom Controls -->
-  <div
-    id="bottomControls"
-    class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white shadow-xl p-4 rounded-lg w-11/12 max-w-lg z-50">
-
+  <div class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white shadow-xl p-4 rounded-lg w-11/12 max-w-lg z-50">
     <input id="newAddress" type="text" placeholder="Enter address"
       class="border px-3 py-2 rounded w-full mb-2" />
 
@@ -127,7 +103,9 @@
       );
     }
 
+    // -------------------------
     // Add Stop
+    // -------------------------
     document.getElementById("addStop").onclick = () => {
       const place = autocomplete.getPlace();
       if (!place?.geometry) return alert("Select a valid address.");
@@ -146,7 +124,9 @@
       markers.push(marker);
     }
 
+    // -------------------------
     // Sidebar Stop List
+    // -------------------------
     function updateSidebar() {
       const list = document.getElementById("stopList");
       list.innerHTML = "";
@@ -174,7 +154,9 @@
       });
     }
 
+    // -------------------------
     // Load Route
+    // -------------------------
     document.getElementById("loadRoute").onclick = loadRoute;
 
     async function loadRoute() {
@@ -203,7 +185,9 @@
         Math.round(route.legs.reduce((a, b) => a + b.duration.value, 0) / 60) + " mins";
     }
 
+    // -------------------------
     // Navigation Button
+    // -------------------------
     document.getElementById("navBtn").onclick = () => {
       if (stops.length < 2) return alert("Add stops first.");
 
@@ -217,14 +201,18 @@
       window.open(url, "_blank");
     };
 
+    // -------------------------
     // Sidebar toggle
+    // -------------------------
     document.getElementById("toggleSidebar").onclick = () => {
       const sb = document.getElementById("sidebar");
       sb.classList.toggle("sidebar-visible");
       sb.classList.toggle("sidebar-hidden");
     };
 
+    // -------------------------
     // Polyline decoder
+    // -------------------------
     function decodePolyline(str, precision = 5) {
       let index = 0, lat = 0, lng = 0, coordinates = [];
       const factor = Math.pow(10, precision);
