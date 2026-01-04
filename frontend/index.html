@@ -25,7 +25,7 @@
       width: 100%;
     }
 
-    /* Make sidebar slide on mobile */
+    /* Sidebar animation */
     #sidebar {
       transition: transform 0.3s ease;
     }
@@ -36,6 +36,30 @@
 
     .sidebar-visible {
       transform: translateX(0);
+    }
+
+    /* ✅ MOBILE OPTIMIZATION — bottom panel smaller & pushed aside */
+    @media (max-width: 640px) {
+      #bottomControls {
+        width: 82%;
+        max-width: 320px;
+        right: 12px;
+        left: auto;
+        transform: none;
+        padding: 0.75rem;
+      }
+
+      #bottomControls button {
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+        font-size: 0.9rem;
+      }
+
+      #bottomControls input {
+        padding-top: 0.45rem;
+        padding-bottom: 0.45rem;
+        font-size: 0.9rem;
+      }
     }
   </style>
 </head>
@@ -68,19 +92,26 @@
   <!-- Top Controls -->
   <div class="absolute top-4 left-4 z-50 flex gap-2">
     <button id="toggleSidebar"
-      class="bg-white shadow px-4 py-2 rounded-lg font-semibold">☰ Stops</button>
+      class="bg-white shadow px-4 py-2 rounded-lg font-semibold">
+      ☰ Stops
+    </button>
   </div>
 
   <!-- Bottom Controls -->
-  <div class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white shadow-xl p-4 rounded-lg w-11/12 max-w-lg">
+  <div
+    id="bottomControls"
+    class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white shadow-xl p-4 rounded-lg w-11/12 max-w-lg z-50">
+
     <input id="newAddress" type="text" placeholder="Enter address"
       class="border px-3 py-2 rounded w-full mb-2" />
 
-    <button id="addStop" class="w-full bg-blue-700 text-white py-2 rounded-lg mb-2 font-semibold">
+    <button id="addStop"
+      class="w-full bg-blue-700 text-white py-2 rounded-lg mb-2 font-semibold">
       Add Stop
     </button>
 
-    <button id="loadRoute" class="w-full bg-green-700 text-white py-2 rounded-lg font-semibold">
+    <button id="loadRoute"
+      class="w-full bg-green-700 text-white py-2 rounded-lg font-semibold">
       Load Optimized Route
     </button>
   </div>
@@ -89,7 +120,6 @@
     const API_URL = "https://mm-courier-route-planner.onrender.com";
 
     const map = L.map("map").setView([-26.2041, 28.0473], 12);
-
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
     let stops = [];
@@ -104,9 +134,7 @@
       );
     }
 
-    // -------------------------
     // Add Stop
-    // -------------------------
     document.getElementById("addStop").onclick = () => {
       const place = autocomplete.getPlace();
       if (!place?.geometry) return alert("Select a valid address.");
@@ -126,9 +154,7 @@
       markers.push(marker);
     }
 
-    // -------------------------
     // Sidebar Stop List
-    // -------------------------
     function updateSidebar() {
       const list = document.getElementById("stopList");
       list.innerHTML = "";
@@ -142,10 +168,8 @@
           <button class="text-red-600 font-bold">X</button>
         `;
 
-        // Zoom to marker
         div.onclick = () => map.setView([s.lat, s.lon], 14);
 
-        // Delete stop
         div.querySelector("button").onclick = (e) => {
           e.stopPropagation();
           stops.splice(index, 1);
@@ -158,9 +182,7 @@
       });
     }
 
-    // -------------------------
     // Load Route
-    // -------------------------
     document.getElementById("loadRoute").onclick = loadRoute;
 
     async function loadRoute() {
@@ -173,7 +195,6 @@
       });
 
       const data = await res.json();
-
       const route = data.routes?.[0];
       if (!route) return alert("Route not found.");
 
@@ -183,26 +204,20 @@
       routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
       map.fitBounds(routeLine.getBounds());
 
-      // Distance + time summary
       document.getElementById("totalDistance").innerText =
-        route.legs.reduce((a, b) => a + b.distance.value, 0) / 1000 + " km";
+        (route.legs.reduce((a, b) => a + b.distance.value, 0) / 1000).toFixed(1) + " km";
 
       document.getElementById("totalTime").innerText =
-        Math.round(route.legs.reduce((a, b) => a + b.duration.value, 0) / 60) +
-        " mins";
+        Math.round(route.legs.reduce((a, b) => a + b.duration.value, 0) / 60) + " mins";
     }
 
-    // -------------------------
-    // Navigation Button
-    // -------------------------
+    // Navigation
     document.getElementById("navBtn").onclick = () => {
       if (stops.length < 2) return alert("Add stops first.");
 
       const origin = `${stops[0].lat},${stops[0].lon}`;
       const destination = `${stops[stops.length - 1].lat},${stops[stops.length - 1].lon}`;
-      const waypoints = stops.slice(1, -1)
-        .map(s => `${s.lat},${s.lon}`)
-        .join("|");
+      const waypoints = stops.slice(1, -1).map(s => `${s.lat},${s.lon}`).join("|");
 
       const url =
         `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
@@ -210,18 +225,14 @@
       window.open(url, "_blank");
     };
 
-    // -------------------------
     // Sidebar toggle
-    // -------------------------
     document.getElementById("toggleSidebar").onclick = () => {
       const sb = document.getElementById("sidebar");
       sb.classList.toggle("sidebar-visible");
       sb.classList.toggle("sidebar-hidden");
     };
 
-    // -------------------------
     // Polyline decoder
-    // -------------------------
     function decodePolyline(str, precision = 5) {
       let index = 0, lat = 0, lng = 0, coordinates = [];
       const factor = Math.pow(10, precision);
@@ -234,8 +245,7 @@
           shift += 5;
         } while (byte >= 0x20);
 
-        const dLat = (result & 1 ? ~(result >> 1) : (result >> 1));
-        lat += dLat;
+        lat += (result & 1) ? ~(result >> 1) : (result >> 1);
 
         result = 0; shift = 0;
         do {
@@ -244,8 +254,7 @@
           shift += 5;
         } while (byte >= 0x20);
 
-        const dLng = (result & 1 ? ~(result >> 1) : (result >> 1));
-        lng += dLng;
+        lng += (result & 1) ? ~(result >> 1) : (result >> 1);
 
         coordinates.push([lat / factor, lng / factor]);
       }
