@@ -18,28 +18,30 @@
     body {
       overflow: hidden;
       -webkit-tap-highlight-color: transparent;
+      margin: 0;
+      font-family: Arial, sans-serif;
     }
 
     #map {
-      height: 100vh;
+      height: calc(100vh - 140px); /* leave space for bottom controls */
       width: 100%;
     }
 
-    /* Sidebar styles */
+    /* Sidebar */
     #sidebar {
-      transition: transform 0.3s ease;
-      z-index: 1500; /* above bottom panel */
+      width: 250px;
+      height: 100vh;
+      position: fixed;
+      top: 0;
+      left: 0;
+      background: white;
+      box-shadow: 2px 0 6px rgba(0,0,0,0.1);
+      padding: 1rem;
+      z-index: 1500;
+      overflow-y: auto;
     }
 
-    .sidebar-hidden {
-      transform: translateX(-100%);
-    }
-
-    .sidebar-visible {
-      transform: translateX(0);
-    }
-
-    /* Bottom panel */
+    /* Bottom Controls */
     #bottomControls {
       position: fixed;
       bottom: 1rem;
@@ -51,22 +53,20 @@
       box-shadow: 0 4px 6px rgba(0,0,0,0.1);
       width: 90%;
       max-width: 400px;
-      z-index: 1000; /* below sidebar but above map */
+      z-index: 1000;
     }
 
     /* Google Places autocomplete dropdown */
     .pac-container {
-      z-index: 2000 !important; /* always on top */
+      z-index: 2000 !important;
     }
   </style>
 </head>
-
-<body class="bg-gray-100 flex overflow-hidden">
+<body>
 
   <!-- Sidebar -->
-  <div id="sidebar" class="w-64 bg-white shadow-xl p-4 sidebar-hidden fixed z-50 h-screen overflow-y-auto">
+  <div id="sidebar">
     <h2 class="text-lg font-bold mb-2 text-blue-800">📍 Stops</h2>
-
     <div id="stopList" class="space-y-3"></div>
 
     <div class="mt-4 border-t pt-4">
@@ -84,13 +84,7 @@
   </div>
 
   <!-- Map -->
-  <div id="map"></div>
-
-  <!-- Top Controls -->
-  <div class="absolute top-4 left-4 z-1600 flex gap-2">
-    <button id="toggleSidebar"
-      class="bg-white shadow px-4 py-2 rounded-lg font-semibold">☰ Stops</button>
-  </div>
+  <div id="map" style="margin-left:250px;"></div>
 
   <!-- Bottom Controls -->
   <div id="bottomControls">
@@ -116,12 +110,31 @@
     let markers = [];
     let routeLine = null;
     let autocomplete;
-    let geocoder;
 
     function initAutocomplete() {
       const input = document.getElementById("newAddress");
       autocomplete = new google.maps.places.Autocomplete(input, { types: ["geocode"] });
-      geocoder = new google.maps.Geocoder();
+
+      // Prevent form submission on Enter
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+        }
+      });
+    }
+
+    // -------------------------
+    // Geocode fallback
+    // -------------------------
+    async function geocodeAddress(address) {
+      const res = await fetch(`${API_URL}/geocode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address }),
+      });
+      const data = await res.json();
+      if (!data.lat || !data.lng) throw new Error("Invalid address");
+      return { lat: () => data.lat, lng: () => data.lng };
     }
 
     // -------------------------
@@ -131,15 +144,14 @@
       const input = document.getElementById("newAddress");
       let place = autocomplete.getPlace();
 
-      // If no place selected from dropdown, geocode typed address
+      // If user typed manually, use geocode fallback
       if (!place || !place.geometry) {
         const address = input.value.trim();
         if (!address) return alert("Enter a valid address.");
 
         try {
-          const res = await geocodeAddress(address);
-          place = { geometry: { location: { lat: () => res.lat, lng: () => res.lng } } };
-        } catch (err) {
+          place = { geometry: await geocodeAddress(address) };
+        } catch {
           return alert("Address not found.");
         }
       }
@@ -153,18 +165,6 @@
 
       input.value = "";
     };
-
-    async function geocodeAddress(address) {
-      return new Promise((resolve, reject) => {
-        geocoder.geocode({ address }, (results, status) => {
-          if (status === "OK" && results[0]) {
-            resolve(results[0].geometry.location);
-          } else {
-            reject(status);
-          }
-        });
-      });
-    }
 
     function addMarker(lat, lon) {
       const marker = L.marker([lat, lon]).addTo(map);
@@ -181,7 +181,6 @@
       stops.forEach((s, index) => {
         const div = document.createElement("div");
         div.className = "p-2 border rounded flex justify-between items-center";
-
         div.innerHTML = `
           <span class="font-semibold">Stop ${index + 1}</span>
           <button class="text-red-600 font-bold">X</button>
@@ -202,11 +201,9 @@
     }
 
     // -------------------------
-    // Load Route
+    // Load Route (Optimize)
     // -------------------------
-    document.getElementById("loadRoute").onclick = loadRoute;
-
-    async function loadRoute() {
+    document.getElementById("loadRoute").onclick = async () => {
       if (stops.length < 2) return alert("Add at least 2 stops.");
 
       const res = await fetch(`${API_URL}/optimize`, {
@@ -226,33 +223,23 @@
       map.fitBounds(routeLine.getBounds());
 
       document.getElementById("totalDistance").innerText =
-        route.legs.reduce((a, b) => a + b.distance.value, 0) / 1000 + " km";
-
+        (route.legs.reduce((a,b)=>a+b.distance.value,0)/1000).toFixed(1) + " km";
       document.getElementById("totalTime").innerText =
-        Math.round(route.legs.reduce((a, b) => a + b.duration.value, 0) / 60) + " mins";
-    }
+        Math.round(route.legs.reduce((a,b)=>a+b.duration.value,0)/60) + " mins";
+    };
 
     // -------------------------
-    // Navigation Button
+    // Navigation
     // -------------------------
     document.getElementById("navBtn").onclick = () => {
       if (stops.length < 2) return alert("Add stops first.");
 
       const origin = `${stops[0].lat},${stops[0].lon}`;
-      const destination = `${stops[stops.length - 1].lat},${stops.length - 1].lon}`;
-      const waypoints = stops.slice(1, -1).map(s => `${s.lat},${s.lon}`).join("|");
+      const destination = `${stops[stops.length-1].lat},${stops[stops.length-1].lon}`;
+      const waypoints = stops.slice(1,-1).map(s=>`${s.lat},${s.lon}`).join("|");
 
       const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
       window.open(url, "_blank");
-    };
-
-    // -------------------------
-    // Sidebar toggle
-    // -------------------------
-    document.getElementById("toggleSidebar").onclick = () => {
-      const sb = document.getElementById("sidebar");
-      sb.classList.toggle("sidebar-visible");
-      sb.classList.toggle("sidebar-hidden");
     };
 
     // -------------------------
@@ -269,7 +256,6 @@
           result |= (byte & 0x1f) << shift;
           shift += 5;
         } while (byte >= 0x20);
-
         const dLat = (result & 1 ? ~(result >> 1) : (result >> 1));
         lat += dLat;
 
@@ -279,15 +265,13 @@
           result |= (byte & 0x1f) << shift;
           shift += 5;
         } while (byte >= 0x20);
-
         const dLng = (result & 1 ? ~(result >> 1) : (result >> 1));
         lng += dLng;
 
-        coordinates.push([lat / factor, lng / factor]);
+        coordinates.push([lat/factor, lng/factor]);
       }
       return coordinates;
     }
   </script>
-
 </body>
 </html>
