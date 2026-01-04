@@ -1,161 +1,187 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MM Courier In-App Navigator</title>
-
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/leaflet-routing-machine/dist/leaflet-routing-machine.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-
-  <style>
-    html, body { height: 100%; margin:0; }
-    #map { height: 100%; width: 100%; }
-    #bottomPanel {
-      position: fixed;
-      bottom: 1rem;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 90%;
-      max-width: 400px;
-      background: white;
-      padding: 1rem;
-      border-radius: 0.5rem;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-      z-index: 1000;
-    }
-    #stopList { max-height: 200px; overflow-y: auto; margin-bottom: 0.5rem; }
-    .pac-container { z-index: 2000 !important; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MM Courier Route Planner</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body, html { margin:0; padding:0; height:100%; font-family:Arial; }
+  #map { height: 60%; width: 100%; }
+  #bottomPanel {
+    height: 40%;
+    width: 100%;
+    background:white;
+    box-shadow:0 -2px 10px rgba(0,0,0,0.2);
+    position: relative;
+    overflow-y:auto;
+    padding:1rem;
+  }
+  #stopsDropdown {
+    position:absolute;
+    top:1rem;
+    left:1rem;
+    background:white;
+    padding:0.5rem;
+    border-radius:0.5rem;
+    box-shadow:0 2px 6px rgba(0,0,0,0.3);
+    max-height: 300px;
+    overflow-y:auto;
+    z-index: 1000;
+  }
+  .stop-item { display:flex; justify-content:space-between; margin-bottom:0.5rem; }
+  .pac-container { z-index: 2000 !important; } /* Google Places autocomplete */
+</style>
 </head>
 <body>
 
 <div id="map"></div>
 
+<div id="stopsDropdown"></div>
+
 <div id="bottomPanel">
-  <input id="newAddress" type="text" placeholder="Enter address" class="border px-3 py-2 rounded w-full mb-2">
-  <button id="addStop" class="w-full bg-blue-700 text-white py-2 rounded mb-2 font-semibold">Add Stop</button>
-
-  <div id="stopList" class="space-y-1"></div>
-
-  <button id="startRoute" class="w-full bg-green-700 text-white py-2 rounded mb-2 font-semibold">Start Route</button>
-  <button id="nextStop" class="w-full bg-yellow-500 text-white py-2 rounded mb-2 font-semibold" disabled>Next Stop</button>
-
-  <div class="flex gap-2 mt-2">
-    <button id="deliveredBtn" class="flex-1 bg-green-600 text-white py-2 rounded font-semibold" disabled>Delivered</button>
-    <button id="notDeliveredBtn" class="flex-1 bg-red-600 text-white py-2 rounded font-semibold" disabled>Not Delivered</button>
+  <input id="newAddress" type="text" placeholder="Enter address" class="border px-3 py-2 w-full rounded mb-2" />
+  <button id="addStop" class="w-full bg-blue-600 text-white py-2 rounded mb-2">Add Stop</button>
+  <button id="optimizeRoute" class="w-full bg-green-600 text-white py-2 rounded mb-2">Optimize Route</button>
+  <button id="startRoute" class="w-full bg-yellow-600 text-white py-2 rounded mb-2">Start Route</button>
+  <div id="navButtons" class="mt-4 hidden">
+    <button id="deliveredBtn" class="w-full bg-green-700 text-white py-2 rounded mb-2">Delivered</button>
+    <button id="notDeliveredBtn" class="w-full bg-red-700 text-white py-2 rounded mb-2">Not Delivered</button>
+    <button id="nextStopBtn" class="w-full bg-blue-700 text-white py-2 rounded">Next Stop</button>
   </div>
 </div>
 
 <script>
-  let map = L.map('map').setView([-26.2041, 28.0473], 12);
+let map = L.map('map').setView([-26.2041,28.0473],12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
+let stops = [];
+let markers = [];
+let currentStopIndex = -1;
 
-  let stops = [];
-  let markers = [];
-  let currentStopIndex = 0;
-  let routingControl = null;
+// Initialize Google Places Autocomplete
+let autocomplete;
+function initAutocomplete() {
+  autocomplete = new google.maps.places.Autocomplete(document.getElementById('newAddress'), { types:['geocode'] });
+}
+window.initAutocomplete = initAutocomplete;
 
-  // Google Places Autocomplete
-  let autocomplete;
-  function initAutocomplete() {
-    autocomplete = new google.maps.places.Autocomplete(document.getElementById("newAddress"), { types: ["geocode"] });
-  }
-  // Load Google Places
-  const gmapScript = document.createElement('script');
-  gmapScript.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete`;
-  gmapScript.async = true; document.head.appendChild(gmapScript);
+// Add stop
+document.getElementById('addStop').onclick = () => {
+  const place = autocomplete.getPlace();
+  if(!place?.geometry) return alert("Select a valid address");
+  const lat = place.geometry.location.lat();
+  const lon = place.geometry.location.lng();
+  stops.push({ lat, lon, address: place.formatted_address });
+  addMarker(lat, lon, stops.length-1);
+  updateStopsDropdown();
+  document.getElementById('newAddress').value = '';
+};
 
-  // Add Stop
-  document.getElementById('addStop').onclick = () => {
-    const place = autocomplete.getPlace();
-    if(!place || !place.geometry) return alert('Select a valid address');
-    const lat = place.geometry.location.lat();
-    const lon = place.geometry.location.lng();
-    const name = place.formatted_address;
+// Add marker
+function addMarker(lat, lon, index){
+  const marker = L.marker([lat,lon]).addTo(map).bindPopup(`Stop ${index+1}`);
+  markers.push(marker);
+  map.fitBounds(L.featureGroup(markers).getBounds());
+}
 
-    stops.push({lat, lon, name});
-    addMarker(lat, lon, name);
-    updateStopList();
-    document.getElementById('newAddress').value = '';
-  };
+// Update stops list dropdown
+function updateStopsDropdown(){
+  const dd = document.getElementById('stopsDropdown');
+  dd.innerHTML = '';
+  stops.forEach((s,i)=>{
+    const div = document.createElement('div');
+    div.className = 'stop-item';
+    div.innerHTML = `<span>Stop ${i+1}: ${s.address}</span>`;
+    dd.appendChild(div);
+  });
+}
 
-  function addMarker(lat, lon, name) {
-    const marker = L.marker([lat, lon]).addTo(map).bindPopup(name);
-    markers.push(marker);
-  }
+// -----------------
+// Route Optimization (Nearest Neighbor)
+// -----------------
+document.getElementById('optimizeRoute').onclick = ()=>{
+  if(stops.length < 2) return alert("Add at least 2 stops");
+  stops = nearestNeighborOptimize(stops);
+  // Remove old markers
+  markers.forEach(m=>map.removeLayer(m));
+  markers = [];
+  stops.forEach((s,i)=>addMarker(s.lat,s.lon,i));
+  updateStopsDropdown();
+  alert("Route optimized by nearest neighbor");
+};
 
-  function updateStopList() {
-    const list = document.getElementById('stopList');
-    list.innerHTML = '';
-    stops.forEach((s, i) => {
-      const div = document.createElement('div');
-      div.className = "p-1 border rounded flex justify-between items-center text-sm";
-      div.innerHTML = `<span>${i+1}. ${s.name}</span><button class="text-red-600 font-bold">X</button>`;
-      div.querySelector('button').onclick = e => {
-        e.stopPropagation();
-        stops.splice(i,1);
-        map.removeLayer(markers[i]);
-        markers.splice(i,1);
-        updateStopList();
-      };
-      list.appendChild(div);
-    });
-  }
-
-  // Start Route
-  document.getElementById('startRoute').onclick = () => {
-    if(stops.length < 2) return alert('Add at least 2 stops');
-    currentStopIndex = 0;
-    drawRoute();
-    enableNavigationButtons();
-  };
-
-  function drawRoute() {
-    if(routingControl) map.removeControl(routingControl);
-    const waypoints = stops.map(s => L.latLng(s.lat,s.lon));
-    routingControl = L.Routing.control({
-      waypoints: waypoints,
-      routeWhileDragging: false,
-      show: false,
-      addWaypoints: false,
-      lineOptions: { styles: [{color:'blue', weight:4}] },
-    }).addTo(map);
-  }
-
-  function enableNavigationButtons() {
-    document.getElementById('nextStop').disabled = false;
-    document.getElementById('deliveredBtn').disabled = false;
-    document.getElementById('notDeliveredBtn').disabled = false;
-  }
-
-  // Next Stop
-  document.getElementById('nextStop').onclick = () => {
-    if(currentStopIndex < stops.length - 1) {
-      currentStopIndex++;
-      map.setView([stops[currentStopIndex].lat, stops[currentStopIndex].lon], 16);
-      markers[currentStopIndex].openPopup();
-    } else {
-      alert('Route complete!');
+// Simple Nearest Neighbor optimization
+function nearestNeighborOptimize(arr){
+  const start = arr[0];
+  let remaining = arr.slice(1);
+  const ordered = [start];
+  let current = start;
+  while(remaining.length){
+    let nearestIndex = 0;
+    let nearestDist = distance(current, remaining[0]);
+    for(let i=1;i<remaining.length;i++){
+      const d = distance(current, remaining[i]);
+      if(d<nearestDist){ nearestDist=d; nearestIndex=i; }
     }
-  };
+    current = remaining.splice(nearestIndex,1)[0];
+    ordered.push(current);
+  }
+  return ordered;
+}
 
-  // Delivered / Not Delivered
-  document.getElementById('deliveredBtn').onclick = () => {
-    alert(`Stop ${currentStopIndex+1} delivered!`);
-    // optionally mark visually
-    markers[currentStopIndex].setIcon(new L.Icon.Default({className:'leaflet-div-icon delivered'}));
-  };
-  document.getElementById('notDeliveredBtn').onclick = () => {
-    alert(`Stop ${currentStopIndex+1} not delivered!`);
-  };
+// Haversine distance
+function distance(a,b){
+  const R=6371e3;
+  const φ1=a.lat*Math.PI/180, φ2=b.lat*Math.PI/180;
+  const Δφ=(b.lat-a.lat)*Math.PI/180;
+  const Δλ=(b.lon-a.lon)*Math.PI/180;
+  const c=Math.sin(Δφ/2)*Math.sin(Δφ/2)+Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)*Math.sin(Δλ/2);
+  const d=R*2*Math.atan2(Math.sqrt(c),Math.sqrt(1-c));
+  return d;
+}
+
+// -----------------
+// Start Route
+// -----------------
+document.getElementById('startRoute').onclick = ()=>{
+  if(stops.length < 1) return alert("Add stops first");
+  currentStopIndex=0;
+  document.getElementById('navButtons').classList.remove('hidden');
+  focusCurrentStop();
+};
+
+// -----------------
+// Delivered / Not Delivered / Next Stop
+// -----------------
+document.getElementById('nextStopBtn').onclick = ()=>{
+  if(currentStopIndex<stops.length-1){
+    currentStopIndex++;
+    focusCurrentStop();
+  } else {
+    alert("Route complete!");
+    document.getElementById('navButtons').classList.add('hidden');
+  }
+};
+
+document.getElementById('deliveredBtn').onclick = ()=>{
+  alert(`Stop ${currentStopIndex+1} marked as Delivered`);
+};
+
+document.getElementById('notDeliveredBtn').onclick = ()=>{
+  alert(`Stop ${currentStopIndex+1} marked as Not Delivered`);
+};
+
+// Focus map on current stop
+function focusCurrentStop(){
+  const s = stops[currentStopIndex];
+  map.setView([s.lat,s.lon],16);
+  markers[currentStopIndex].openPopup();
+}
 </script>
 
+<script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_KEY&libraries=places&callback=initAutocomplete" async defer></script>
 </body>
 </html>
