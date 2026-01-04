@@ -1,216 +1,269 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MM Route Planner</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<title>MM Courier Route Planner</title>
 
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-  <!-- Tailwind -->
-  <script src="https://cdn.tailwindcss.com"></script>
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Google Places -->
-  <script
-    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete"
-    defer></script>
+<!-- Google Places -->
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCPXDWN4D1063Yzml3zGjwb36ewDwzkVuk&libraries=places&callback=initAutocomplete" defer></script>
 
-  <style>
-    html, body {
-      height: 100%;
-      margin: 0;
-    }
+<style>
+body { overflow: hidden; }
+#map { height: 100vh; width: 100%; }
 
-    #map {
-      height: calc(100vh - 260px); /* space for panel */
-      width: 100%;
-      z-index: 1;
-    }
+#sidebar {
+  transition: transform .3s;
+  z-index: 2000;
+}
+.sidebar-hidden { transform: translateX(-100%); }
+.sidebar-visible { transform: translateX(0); }
 
-    .pac-container {
-      z-index: 9999 !important;
-    }
-  </style>
+#bottomPanel {
+  z-index: 1500;
+}
+
+.pac-container { z-index: 3000 !important; }
+</style>
 </head>
 
-<body class="bg-gray-100 flex flex-col">
+<body class="bg-gray-100">
 
-  <!-- MAP -->
-  <div id="map"></div>
+<!-- SIDEBAR -->
+<div id="sidebar" class="fixed top-0 left-0 w-72 h-screen bg-white shadow-xl p-4 sidebar-hidden overflow-y-auto">
+  <h2 class="font-bold text-lg mb-2">📍 Stops</h2>
+  <div id="stopList" class="space-y-2"></div>
 
-  <!-- CONTROL PANEL (ALWAYS VISIBLE) -->
-  <div class="bg-white shadow-lg p-3 space-y-2 z-10">
+  <div class="mt-4 border-t pt-2 text-sm">
+    <div>Distance: <span id="totalDistance">—</span></div>
+    <div>Time: <span id="totalTime">—</span></div>
+  </div>
 
-    <!-- Address Input -->
-    <input
-      id="addressInput"
-      type="text"
-      placeholder="Enter delivery address"
-      class="w-full border px-3 py-2 rounded"
-    />
+  <button id="startRoute" class="mt-4 w-full bg-green-700 text-white py-2 rounded">
+    Start Route
+  </button>
+</div>
 
-    <!-- Buttons -->
-    <div class="flex gap-2">
-      <button id="addStopBtn" class="flex-1 bg-blue-700 text-white py-2 rounded">
-        Add Stop
-      </button>
-      <button id="optimizeBtn" class="flex-1 bg-green-700 text-white py-2 rounded">
-        Load Route
-      </button>
-    </div>
+<!-- MAP -->
+<div id="map"></div>
 
-    <!-- Stops List -->
-    <div>
-      <h3 class="font-bold text-sm mb-1">Stops</h3>
-      <div id="stopsList" class="space-y-1 max-h-32 overflow-y-auto"></div>
-    </div>
+<!-- TOP BUTTON -->
+<button id="toggleSidebar"
+  class="fixed top-4 left-4 bg-white shadow px-4 py-2 rounded z-[2500]">
+  ☰ Stops
+</button>
 
-    <!-- Driver Controls -->
-    <div class="flex gap-2">
-      <button id="startRouteBtn" class="flex-1 bg-black text-white py-2 rounded">
-        Start Route
-      </button>
-      <button id="deliveredBtn" class="flex-1 bg-green-600 text-white py-2 rounded">
+<!-- BOTTOM PANEL -->
+<div id="bottomPanel"
+  class="fixed bottom-4 left-1/2 -translate-x-1/2 bg-white p-4 rounded shadow w-[95%] max-w-md">
+
+  <input id="addressInput" type="text" placeholder="Enter address"
+    class="border p-2 rounded w-full mb-2"/>
+
+  <button id="addStop"
+    class="w-full bg-blue-700 text-white py-2 rounded mb-2">
+    Add Stop
+  </button>
+
+  <button id="optimizeRoute"
+    class="w-full bg-indigo-700 text-white py-2 rounded mb-2">
+    Optimize Route
+  </button>
+
+  <!-- NAV MODE -->
+  <div id="navPanel" class="hidden mt-2 border-t pt-2 text-sm">
+    <div class="font-semibold text-blue-800">Current Stop</div>
+    <div id="currentStopName" class="mt-1"></div>
+    <div class="mt-1">Distance: <span id="distanceToStop">—</span></div>
+
+    <div class="flex gap-2 mt-2">
+      <button id="deliveredBtn" class="flex-1 bg-green-700 text-white py-2 rounded">
         Delivered
       </button>
-      <button id="nextStopBtn" class="flex-1 bg-orange-600 text-white py-2 rounded">
-        Next Stop
+      <button id="failedBtn" class="flex-1 bg-red-600 text-white py-2 rounded">
+        Not Delivered
       </button>
     </div>
   </div>
+</div>
 
 <script>
-  const API_URL = "https://mm-courier-route-planner.onrender.com";
+/* ---------------- SETUP ---------------- */
+const API_URL = "https://mm-courier-route-planner.onrender.com";
 
-  let map = L.map("map").setView([-26.2041, 28.0473], 11);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+const map = L.map("map").setView([-26.2041, 28.0473], 12);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
-  let autocomplete;
-  let stops = [];
-  let markers = [];
-  let routeLine;
-  let currentIndex = 0;
+let autocomplete;
+let stops = [];
+let markers = [];
+let routeLine;
+let currentStopIndex = null;
+let gpsWatchId = null;
+let userMarker;
 
-  function initAutocomplete() {
-    autocomplete = new google.maps.places.Autocomplete(
-      document.getElementById("addressInput"),
-      { types: ["geocode"] }
-    );
-  }
+/* ---------------- AUTOCOMPLETE ---------------- */
+function initAutocomplete() {
+  autocomplete = new google.maps.places.Autocomplete(
+    document.getElementById("addressInput")
+  );
+}
 
-  document.getElementById("addStopBtn").onclick = () => {
-    const place = autocomplete.getPlace();
-    if (!place || !place.geometry) {
-      alert("Select an address from suggestions");
-      return;
+/* ---------------- ADD STOP ---------------- */
+document.getElementById("addStop").onclick = () => {
+  const place = autocomplete.getPlace();
+  if (!place?.geometry) return alert("Select address from list");
+
+  const stop = {
+    lat: place.geometry.location.lat(),
+    lon: place.geometry.location.lng(),
+    name: place.formatted_address,
+    status: "pending"
+  };
+
+  stops.push(stop);
+  markers.push(L.marker([stop.lat, stop.lon]).addTo(map));
+  updateStopsUI();
+  document.getElementById("addressInput").value = "";
+};
+
+/* ---------------- STOPS LIST ---------------- */
+function updateStopsUI() {
+  const list = document.getElementById("stopList");
+  list.innerHTML = "";
+
+  stops.forEach((s, i) => {
+    const div = document.createElement("div");
+    div.className = "p-2 border rounded text-sm";
+    div.innerHTML = `
+      <div class="font-semibold">${i+1}. ${s.name}</div>
+      <div class="text-xs ${
+        s.status === "delivered" ? "text-green-600"
+        : s.status === "failed" ? "text-red-600"
+        : "text-gray-400"
+      }">${s.status}</div>
+    `;
+    div.onclick = () => map.setView([s.lat, s.lon], 15);
+    list.appendChild(div);
+  });
+}
+
+/* ---------------- OPTIMIZE ROUTE ---------------- */
+document.getElementById("optimizeRoute").onclick = async () => {
+  if (stops.length < 2) return alert("Add at least 2 stops");
+
+  const res = await fetch(`${API_URL}/optimize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ stops })
+  });
+
+  const data = await res.json();
+  const route = data.routes?.[0];
+  if (!route) return alert("Route failed");
+
+  const coords = decodePolyline(route.overview_polyline.points);
+  if (routeLine) map.removeLayer(routeLine);
+  routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
+  map.fitBounds(routeLine.getBounds());
+
+  document.getElementById("totalDistance").innerText =
+    (route.legs.reduce((a,b)=>a+b.distance.value,0)/1000).toFixed(1)+" km";
+
+  document.getElementById("totalTime").innerText =
+    Math.round(route.legs.reduce((a,b)=>a+b.duration.value,0)/60)+" mins";
+};
+
+/* ---------------- START ROUTE ---------------- */
+document.getElementById("startRoute").onclick = () => {
+  currentStopIndex = 0;
+  document.getElementById("navPanel").classList.remove("hidden");
+  startGPS();
+  updateNavUI();
+};
+
+/* ---------------- GPS ---------------- */
+function startGPS() {
+  gpsWatchId = navigator.geolocation.watchPosition(pos => {
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+
+    if (!userMarker) {
+      userMarker = L.circleMarker([lat, lon], { radius: 8, color: "blue" }).addTo(map);
+    } else {
+      userMarker.setLatLng([lat, lon]);
     }
 
-    const stop = {
-      label: place.formatted_address,
-      lat: place.geometry.location.lat(),
-      lon: place.geometry.location.lng(),
-      status: "pending"
-    };
+    updateDistance(lat, lon);
+  }, null, { enableHighAccuracy: true });
+}
 
-    stops.push(stop);
+/* ---------------- NAV UI ---------------- */
+function updateNavUI() {
+  const stop = stops[currentStopIndex];
+  document.getElementById("currentStopName").innerText = stop.name;
+  updateStopsUI();
+}
 
-    const marker = L.marker([stop.lat, stop.lon]).addTo(map);
-    markers.push(marker);
+function updateDistance(lat, lon) {
+  const stop = stops[currentStopIndex];
+  const d = distanceMeters({lat,lon}, stop);
+  document.getElementById("distanceToStop").innerText =
+    d < 1000 ? Math.round(d)+" m" : (d/1000).toFixed(1)+" km";
+}
 
-    document.getElementById("addressInput").value = "";
-    renderStops();
-  };
+/* ---------------- DELIVERY ---------------- */
+document.getElementById("deliveredBtn").onclick = () => markStop("delivered");
+document.getElementById("failedBtn").onclick = () => markStop("failed");
 
-  function renderStops() {
-    const list = document.getElementById("stopsList");
-    list.innerHTML = "";
+function markStop(status) {
+  stops[currentStopIndex].status = status;
+  currentStopIndex++;
 
-    stops.forEach((s, i) => {
-      const div = document.createElement("div");
-      div.className = "border p-2 rounded text-sm";
-      div.innerHTML = `<strong>${i + 1}.</strong> ${s.label}`;
-      div.onclick = () => map.setView([s.lat, s.lon], 14);
-      list.appendChild(div);
-    });
+  if (currentStopIndex >= stops.length) {
+    alert("Route completed");
+    navigator.geolocation.clearWatch(gpsWatchId);
+    return;
   }
+  updateNavUI();
+}
 
-  document.getElementById("optimizeBtn").onclick = async () => {
-    if (stops.length < 2) {
-      alert("Add at least 2 stops");
-      return;
-    }
+/* ---------------- UI ---------------- */
+document.getElementById("toggleSidebar").onclick = () => {
+  sidebar.classList.toggle("sidebar-hidden");
+  sidebar.classList.toggle("sidebar-visible");
+};
 
-    const res = await fetch(`${API_URL}/optimize`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ stops })
-    });
+/* ---------------- HELPERS ---------------- */
+function distanceMeters(a,b){
+  const R=6371e3;
+  const dLat=(b.lat-a.lat)*Math.PI/180;
+  const dLon=(b.lon-a.lon)*Math.PI/180;
+  const x=Math.sin(dLat/2)**2+
+    Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLon/2)**2;
+  return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+}
 
-    const data = await res.json();
-    const route = data.routes?.[0];
-    if (!route) return alert("No route found");
-
-    const coords = decodePolyline(route.overview_polyline.points);
-
-    if (routeLine) map.removeLayer(routeLine);
-    routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
-    map.fitBounds(routeLine.getBounds());
-  };
-
-  document.getElementById("startRouteBtn").onclick = () => {
-    currentIndex = 0;
-    navigateToCurrent();
-  };
-
-  document.getElementById("deliveredBtn").onclick = () => {
-    if (!stops[currentIndex]) return;
-    stops[currentIndex].status = "delivered";
-    currentIndex++;
-    navigateToCurrent();
-  };
-
-  document.getElementById("nextStopBtn").onclick = () => {
-    currentIndex++;
-    navigateToCurrent();
-  };
-
-  function navigateToCurrent() {
-    if (currentIndex >= stops.length) {
-      alert("Route complete");
-      return;
-    }
-
-    const s = stops[currentIndex];
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}`;
-    window.open(url, "_blank");
+function decodePolyline(str){
+  let i=0,lat=0,lng=0,arr=[];
+  while(i<str.length){
+    let b,s=0,r=0;
+    do{b=str.charCodeAt(i++)-63;r|=(b&31)<<s;s+=5;}while(b>=32);
+    lat+=r&1?~(r>>1):r>>1;
+    s=0;r=0;
+    do{b=str.charCodeAt(i++)-63;r|=(b&31)<<s;s+=5;}while(b>=32);
+    lng+=r&1?~(r>>1):r>>1;
+    arr.push([lat/1e5,lng/1e5]);
   }
-
-  function decodePolyline(str) {
-    let index = 0, lat = 0, lng = 0, coords = [];
-    while (index < str.length) {
-      let b, shift = 0, result = 0;
-      do {
-        b = str.charCodeAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      lat += (result & 1) ? ~(result >> 1) : (result >> 1);
-
-      shift = 0; result = 0;
-      do {
-        b = str.charCodeAt(index++) - 63;
-        result |= (b & 0x1f) << shift;
-        shift += 5;
-      } while (b >= 0x20);
-      lng += (result & 1) ? ~(result >> 1) : (result >> 1);
-
-      coords.push([lat / 1e5, lng / 1e5]);
-    }
-    return coords;
-  }
+  return arr;
+}
 </script>
-
 </body>
 </html>
