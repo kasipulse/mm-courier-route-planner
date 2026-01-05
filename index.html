@@ -16,49 +16,71 @@
 
   <style>
     body {
-      overflow: hidden;
-      -webkit-tap-highlight-color: transparent;
       margin: 0;
       font-family: Arial, sans-serif;
     }
 
+    /* Map full height minus bottom panel */
     #map {
-      height: calc(100vh - 140px); /* leave space for bottom controls */
-      width: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 140px; /* leave space for bottom panel */
+      z-index: 0;
     }
 
     /* Sidebar */
     #sidebar {
-      width: 250px;
-      height: 100vh;
       position: fixed;
       top: 0;
-      left: 0;
+      left: -260px; /* hidden initially */
+      width: 250px;
+      height: 100%;
       background: white;
       box-shadow: 2px 0 6px rgba(0,0,0,0.1);
       padding: 1rem;
-      z-index: 1500;
       overflow-y: auto;
+      z-index: 1500;
+      transition: left 0.3s ease;
+    }
+
+    #sidebar.visible {
+      left: 0;
     }
 
     /* Bottom Controls */
     #bottomControls {
       position: fixed;
-      bottom: 1rem;
+      bottom: 0;
       left: 50%;
       transform: translateX(-50%);
       background: white;
       padding: 1rem;
-      border-radius: 0.5rem;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-      width: 90%;
+      border-radius: 0.5rem 0.5rem 0 0;
+      box-shadow: 0 -4px 6px rgba(0,0,0,0.1);
+      width: 100%;
       max-width: 400px;
-      z-index: 1000;
+      z-index: 1200;
     }
 
     /* Google Places autocomplete dropdown */
     .pac-container {
       z-index: 2000 !important;
+    }
+
+    /* Toggle button */
+    #toggleSidebar {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 1600;
+      background: white;
+      padding: 0.5rem 1rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      font-weight: bold;
+      cursor: pointer;
     }
   </style>
 </head>
@@ -84,7 +106,10 @@
   </div>
 
   <!-- Map -->
-  <div id="map" style="margin-left:250px;"></div>
+  <div id="map"></div>
+
+  <!-- Sidebar toggle button -->
+  <div id="toggleSidebar">☰ Stops</div>
 
   <!-- Bottom Controls -->
   <div id="bottomControls">
@@ -111,30 +136,15 @@
     let routeLine = null;
     let autocomplete;
 
+    // -------------------------
+    // Google Autocomplete
+    // -------------------------
     function initAutocomplete() {
       const input = document.getElementById("newAddress");
       autocomplete = new google.maps.places.Autocomplete(input, { types: ["geocode"] });
-
-      // Prevent form submission on Enter
       input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-        }
+        if (e.key === "Enter") e.preventDefault();
       });
-    }
-
-    // -------------------------
-    // Geocode fallback
-    // -------------------------
-    async function geocodeAddress(address) {
-      const res = await fetch(`${API_URL}/geocode`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address }),
-      });
-      const data = await res.json();
-      if (!data.lat || !data.lng) throw new Error("Invalid address");
-      return { lat: () => data.lat, lng: () => data.lng };
     }
 
     // -------------------------
@@ -144,25 +154,29 @@
       const input = document.getElementById("newAddress");
       let place = autocomplete.getPlace();
 
-      // If user typed manually, use geocode fallback
+      // Manual entry fallback
       if (!place || !place.geometry) {
         const address = input.value.trim();
         if (!address) return alert("Enter a valid address.");
-
         try {
-          place = { geometry: await geocodeAddress(address) };
+          const res = await fetch(`${API_URL}/geocode`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address }),
+          });
+          const data = await res.json();
+          if (!data.lat || !data.lng) throw new Error("Invalid address");
+          place = { geometry: { location: { lat: () => data.lat, lng: () => data.lng } } };
         } catch {
-          return alert("Address not found.");
+          return alert("Address not found");
         }
       }
 
       const lat = place.geometry.location.lat();
       const lon = place.geometry.location.lng();
-
       stops.push({ lat, lon });
       addMarker(lat, lon);
       updateSidebar();
-
       input.value = "";
     };
 
@@ -177,7 +191,6 @@
     function updateSidebar() {
       const list = document.getElementById("stopList");
       list.innerHTML = "";
-
       stops.forEach((s, index) => {
         const div = document.createElement("div");
         div.className = "p-2 border rounded flex justify-between items-center";
@@ -185,9 +198,7 @@
           <span class="font-semibold">Stop ${index + 1}</span>
           <button class="text-red-600 font-bold">X</button>
         `;
-
         div.onclick = () => map.setView([s.lat, s.lon], 14);
-
         div.querySelector("button").onclick = (e) => {
           e.stopPropagation();
           stops.splice(index, 1);
@@ -195,29 +206,25 @@
           markers.splice(index, 1);
           updateSidebar();
         };
-
         list.appendChild(div);
       });
     }
 
     // -------------------------
-    // Load Route (Optimize)
+    // Load Optimized Route
     // -------------------------
     document.getElementById("loadRoute").onclick = async () => {
       if (stops.length < 2) return alert("Add at least 2 stops.");
-
       const res = await fetch(`${API_URL}/optimize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stops }),
       });
-
       const data = await res.json();
       const route = data.routes?.[0];
       if (!route) return alert("Route not found.");
 
       const coords = decodePolyline(route.overview_polyline.points);
-
       if (routeLine) map.removeLayer(routeLine);
       routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
       map.fitBounds(routeLine.getBounds());
@@ -233,13 +240,19 @@
     // -------------------------
     document.getElementById("navBtn").onclick = () => {
       if (stops.length < 2) return alert("Add stops first.");
-
       const origin = `${stops[0].lat},${stops[0].lon}`;
       const destination = `${stops[stops.length-1].lat},${stops[stops.length-1].lon}`;
       const waypoints = stops.slice(1,-1).map(s=>`${s.lat},${s.lon}`).join("|");
-
       const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
       window.open(url, "_blank");
+    };
+
+    // -------------------------
+    // Sidebar Toggle
+    // -------------------------
+    document.getElementById("toggleSidebar").onclick = () => {
+      const sidebar = document.getElementById("sidebar");
+      sidebar.classList.toggle("visible");
     };
 
     // -------------------------
