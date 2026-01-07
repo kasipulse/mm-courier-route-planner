@@ -1,92 +1,53 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MM Courier Route Planner</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MM Courier Route Planner</title>
 
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-  <!-- Tailwind -->
-  <script src="https://cdn.tailwindcss.com"></script>
+<!-- Tailwind (dev only) -->
+<script src="https://cdn.tailwindcss.com"></script>
 
-  <style>
-    body {
-      margin: 0;
-      height: 100vh;
-      overflow: hidden;
-      font-family: sans-serif;
-    }
-
-    #app {
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-    }
-
-    #map {
-      flex: 1;
-      width: 100%;
-    }
-
-    /* Bottom panel */
-    #controls {
-      background: white;
-      padding: 1rem;
-      border-top: 1px solid #e5e7eb;
-      z-index: 500;
-    }
-
-    /* Sidebar */
-    #sidebar {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 260px;
-      height: 100vh;
-      background: white;
-      transform: translateX(-100%);
-      transition: transform 0.3s ease;
-      z-index: 1000;
-      overflow-y: auto;
-      padding: 1rem;
-      box-shadow: 2px 0 6px rgba(0,0,0,0.2);
-    }
-
-    #sidebar.visible {
-      transform: translateX(0);
-    }
-  </style>
+<style>
+  body { margin:0; height:100vh; overflow:hidden; }
+  #app { display:flex; flex-direction:column; height:100vh; }
+  #map { flex:1; width:100%; }
+  #controls { background:white; padding:1rem; border-top:1px solid #e5e7eb; z-index:500; position:relative; }
+  #sidebar {
+    position:fixed; top:0; left:0; width:260px; height:100vh;
+    background:white; transform:translateX(-100%);
+    transition:transform 0.3s ease; z-index:1000; overflow-y:auto; box-shadow:2px 0 6px rgba(0,0,0,0.2);
+  }
+  #sidebar.visible { transform:translateX(0); }
+  .pac-container { z-index:2000 !important; }
+</style>
 </head>
 
 <body>
 <div id="app">
 
   <!-- Sidebar -->
-  <div id="sidebar">
+  <div id="sidebar" class="p-4">
     <h2 class="text-lg font-bold mb-3">📍 Stops</h2>
     <div id="stopList" class="space-y-2"></div>
-
     <div class="mt-4 border-t pt-4">
       <p class="text-sm font-semibold">Distance</p>
       <p id="totalDistance">—</p>
-
       <p class="text-sm font-semibold mt-2">Time</p>
       <p id="totalTime">—</p>
     </div>
-
-    <button id="navBtn"
-      class="mt-6 w-full bg-green-700 text-white py-2 rounded">
+    <button id="navBtn" class="mt-6 w-full bg-green-700 text-white py-2 rounded">
       Start Navigation
     </button>
   </div>
 
   <!-- Top bar -->
   <div class="p-2 bg-white shadow flex">
-    <button id="toggleSidebar"
-      class="px-3 py-2 bg-gray-100 rounded font-semibold">
+    <button id="toggleSidebar" class="px-3 py-2 bg-gray-100 rounded font-semibold">
       ☰ Stops
     </button>
   </div>
@@ -96,20 +57,12 @@
 
   <!-- Controls -->
   <div id="controls">
-    <input
-      id="newAddress"
-      type="text"
-      placeholder="Enter address"
-      class="border px-3 py-2 rounded w-full mb-2"
-    />
-
-    <button id="addStop"
-      class="w-full bg-blue-700 text-white py-2 rounded mb-2">
+    <input id="newAddress" type="text" placeholder="Enter address" class="border px-3 py-2 rounded w-full mb-2" />
+    <ul id="suggestions" class="border bg-white rounded mb-2 max-h-40 overflow-y-auto hidden"></ul>
+    <button id="addStop" class="w-full bg-blue-700 text-white py-2 rounded mb-2">
       Add Stop
     </button>
-
-    <button id="loadRoute"
-      class="w-full bg-green-700 text-white py-2 rounded">
+    <button id="loadRoute" class="w-full bg-green-700 text-white py-2 rounded">
       Optimize Route
     </button>
   </div>
@@ -117,112 +70,170 @@
 </div>
 
 <script>
-  const map = L.map("map").setView([-26.2041, 28.0473], 12);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+const map = L.map("map").setView([-26.2041, 28.0473], 12);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
-  let stops = [];
-  let markers = [];
-  let routeLine = null;
+let stops = [];
+let markers = [];
+const maxStopsFree = 10;
 
-  // -------------------------
-  // Sidebar toggle
-  // -------------------------
-  document.getElementById("toggleSidebar").onclick = () => {
-    document.getElementById("sidebar").classList.toggle("visible");
-  };
+// Sidebar toggle
+const sidebar = document.getElementById("sidebar");
+document.getElementById("toggleSidebar").onclick = () => sidebar.classList.toggle("visible");
 
-  // -------------------------
-  // Address search using Nominatim
-  // -------------------------
-  async function geocodeAddress(address) {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
-    const res = await fetch(url);
-    const data = await res.json();
-    if (!data.length) return null;
-    return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+// Close sidebar when clicking outside
+document.addEventListener("click", (e) => {
+  if (!sidebar.contains(e.target) && !document.getElementById("toggleSidebar").contains(e.target)) {
+    sidebar.classList.remove("visible");
+  }
+});
+
+// -----------------
+// Nominatim autocomplete
+// -----------------
+const input = document.getElementById("newAddress");
+const suggestionList = document.getElementById("suggestions");
+
+input.addEventListener("input", async () => {
+  const query = input.value;
+  if (!query || query.length < 3) { 
+    suggestionList.innerHTML = ""; suggestionList.classList.add("hidden"); 
+    return;
   }
 
-  document.getElementById("addStop").onclick = async () => {
-    const addr = document.getElementById("newAddress").value.trim();
-    if (!addr) return alert("Enter an address");
+  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&addressdetails=1&limit=5`;
+  const res = await fetch(url);
+  const data = await res.json();
 
-    const loc = await geocodeAddress(addr);
-    if (!loc) return alert("Address not found");
+  suggestionList.innerHTML = "";
+  data.forEach((item, idx) => {
+    const li = document.createElement("li");
+    li.className = "p-2 hover:bg-gray-100 cursor-pointer";
+    li.textContent = item.display_name;
+    li.dataset.lat = item.lat;
+    li.dataset.lon = item.lon;
+    li.onclick = () => {
+      input.value = item.display_name;
+      input.dataset.lat = item.lat;
+      input.dataset.lon = item.lon;
+      suggestionList.classList.add("hidden");
+    };
+    suggestionList.appendChild(li);
+  });
+  suggestionList.classList.remove("hidden");
+});
 
-    stops.push(loc);
-    const marker = L.marker([loc.lat, loc.lon]).addTo(map);
-    markers.push(marker);
-    updateStops();
-
-    document.getElementById("newAddress").value = "";
-    map.setView([loc.lat, loc.lon], 14);
-  };
-
-  function updateStops() {
-    const list = document.getElementById("stopList");
-    list.innerHTML = "";
-
-    stops.forEach((s, i) => {
-      const div = document.createElement("div");
-      div.className = "border p-2 rounded flex justify-between";
-      div.innerHTML = `<span>Stop ${i + 1}</span><button>X</button>`;
-
-      div.onclick = () => map.setView([s.lat, s.lon], 15);
-
-      div.querySelector("button").onclick = (e) => {
-        e.stopPropagation();
-        map.removeLayer(markers[i]);
-        markers.splice(i, 1);
-        stops.splice(i, 1);
-        updateStops();
-      };
-
-      list.appendChild(div);
-    });
+// -----------------
+// Add stop
+// -----------------
+document.getElementById("addStop").onclick = () => {
+  if (!input.dataset.lat || !input.dataset.lon) {
+    alert("Select a valid address from suggestions");
+    return;
   }
 
-  // -------------------------
-  // OSRM route optimization
-  // -------------------------
-  document.getElementById("loadRoute").onclick = async () => {
-    if (stops.length < 2) return alert("Add at least 2 stops");
+  if (stops.length >= maxStopsFree) {
+    alert(`Free tier max stops: ${maxStopsFree}. Upgrade to add more.`);
+    return;
+  }
 
-    const coords = stops.map(s => `${s.lon},${s.lat}`).join(";"); // lon,lat
-    const url = `https://router.project-osrm.org/trip/v1/driving/${coords}?source=first&destination=last&roundtrip=false&overview=full`;
+  const lat = parseFloat(input.dataset.lat);
+  const lon = parseFloat(input.dataset.lon);
 
-    const res = await fetch(url);
-    const data = await res.json();
-    if (!data.trips || !data.trips.length) return alert("Route not found");
+  stops.push({ lat, lon, name: input.value });
+  const marker = L.marker([lat, lon]).addTo(map);
+  markers.push(marker);
+  map.setView([lat, lon], 14);
 
-    const trip = data.trips[0];
+  input.value = "";
+  delete input.dataset.lat;
+  delete input.dataset.lon;
+  suggestionList.innerHTML = "";
+  suggestionList.classList.add("hidden");
 
-    const routeCoords = trip.geometry.coordinates.map(c => [c[1], c[0]]);
+  updateStops();
+};
 
-    if (routeLine) map.removeLayer(routeLine);
-    routeLine = L.polyline(routeCoords, { color: "blue", weight: 5 }).addTo(map);
-    map.fitBounds(routeLine.getBounds());
+// -----------------
+// Update sidebar stops
+// -----------------
+function updateStops() {
+  const list = document.getElementById("stopList");
+  list.innerHTML = "";
+  stops.forEach((s, i) => {
+    const div = document.createElement("div");
+    div.className = "border p-2 rounded flex justify-between items-center";
+    div.innerHTML = `<span>${i+1}. ${s.name}</span><button class="text-red-600 font-bold">X</button>`;
 
-    const distanceKm = (trip.distance / 1000).toFixed(2);
-    const durationMin = Math.round(trip.duration / 60);
+    div.onclick = () => map.setView([s.lat, s.lon], 14);
 
-    document.getElementById("totalDistance").innerText = distanceKm + " km";
-    document.getElementById("totalTime").innerText = durationMin + " mins";
-  };
+    div.querySelector("button").onclick = (e) => {
+      e.stopPropagation();
+      map.removeLayer(markers[i]);
+      markers.splice(i,1);
+      stops.splice(i,1);
+      updateStops();
+    };
 
-  // -------------------------
-  // Navigation (open in external map)
-  // -------------------------
-  document.getElementById("navBtn").onclick = () => {
-    if (stops.length < 2) return alert("Add stops first");
+    list.appendChild(div);
+  });
+}
 
-    const origin = `${stops[0].lat},${stops[0].lon}`;
-    const destination = `${stops[stops.length-1].lat},${stops[stops.length-1].lon}`;
-    const waypoints = stops.slice(1, -1).map(s => `${s.lat},${s.lon}`).join("|");
+// -----------------
+// Optimize Route (nearest neighbor for free tier)
+// -----------------
+document.getElementById("loadRoute").onclick = () => {
+  if (stops.length < 2) return alert("Add at least 2 stops");
 
-    const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
-    window.open(url, "_blank");
-  };
+  // Simple nearest neighbor (for free tier, max 10 stops)
+  const optimized = [stops[0]];
+  const remaining = stops.slice(1);
+  while (remaining.length) {
+    const last = optimized[optimized.length - 1];
+    let nearestIdx = 0;
+    let minDist = distance(last, remaining[0]);
+    for (let i=1;i<remaining.length;i++){
+      const d = distance(last, remaining[i]);
+      if(d<minDist){ minDist=d; nearestIdx=i; }
+    }
+    optimized.push(remaining[nearestIdx]);
+    remaining.splice(nearestIdx,1);
+  }
+
+  // Draw route
+  if(window.routeLine) map.removeLayer(window.routeLine);
+  const latlngs = optimized.map(s=>[s.lat,s.lon]);
+  window.routeLine = L.polyline(latlngs,{color:"blue"}).addTo(map);
+  map.fitBounds(window.routeLine.getBounds());
+
+  // Update stops order
+  stops = optimized;
+  updateStops();
+};
+
+function distance(a,b){
+  const R = 6371; // km
+  const dLat = (b.lat-a.lat)*Math.PI/180;
+  const dLon = (b.lon-a.lon)*Math.PI/180;
+  const lat1 = a.lat*Math.PI/180;
+  const lat2 = b.lat*Math.PI/180;
+  const x = dLon * Math.cos((lat1+lat2)/2);
+  const dist = Math.sqrt(x*x + dLat*dLat)*R;
+  return dist;
+}
+
+// -----------------
+// Navigation button (optional Google Maps link)
+// -----------------
+document.getElementById("navBtn").onclick = () => {
+  if(stops.length<2){ alert("Add stops first"); return; }
+  const origin = `${stops[0].lat},${stops[0].lon}`;
+  const destination = `${stops[stops.length-1].lat},${stops[stops.length-1].lon}`;
+  const waypoints = stops.slice(1,-1).map(s=>`${s.lat},${s.lon}`).join("|");
+  const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
+  window.open(url,"_blank");
+};
+
 </script>
-
 </body>
 </html>
