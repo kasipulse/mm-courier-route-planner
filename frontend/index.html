@@ -2,47 +2,38 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
   <title>MM Courier Route Planner</title>
 
   <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-  <!-- Tailwind (dev only) -->
+  <!-- Tailwind (dev only – OK for now) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Google Maps Places -->
+  <!-- Google Places -->
   <script
-    async
-    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBh-KhkmZrS6b97MPv-YTMjU6qTF0qFzbY&libraries=places&callback=initAutocomplete">
-  </script>
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBh-KhkmZrS6b97MPv-YTMjU6qTF0qFzbY&libraries=places&callback=initAutocomplete"
+    async defer></script>
 
   <style>
     body {
       margin: 0;
-      height: 100vh;
       overflow: hidden;
+      -webkit-tap-highlight-color: transparent;
     }
 
-    /* App layout */
+    /* Layout */
     #app {
       display: flex;
       flex-direction: column;
       height: 100vh;
     }
 
-    /* Map area */
     #map {
       flex: 1;
-      width: 100%;
-    }
-
-    /* Bottom panel */
-    #controls {
-      background: white;
-      padding: 1rem;
-      border-top: 1px solid #e5e7eb;
+      z-index: 1;
     }
 
     /* Sidebar */
@@ -50,22 +41,36 @@
       position: fixed;
       top: 0;
       left: 0;
-      width: 260px;
       height: 100vh;
+      width: 260px;
       background: white;
+      z-index: 1500;
       transform: translateX(-100%);
       transition: transform 0.3s ease;
-      z-index: 1000;
-      overflow-y: auto;
     }
 
     #sidebar.visible {
       transform: translateX(0);
     }
 
-    /* Autocomplete dropdown */
+    /* Bottom panel */
+    #bottomControls {
+      position: fixed;
+      bottom: 0.75rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: white;
+      padding: 1rem;
+      border-radius: 0.75rem;
+      width: 92%;
+      max-width: 420px;
+      z-index: 1200;
+      box-shadow: 0 10px 20px rgba(0,0,0,0.15);
+    }
+
+    /* Google autocomplete fix */
     .pac-container {
-      z-index: 2000 !important;
+      z-index: 3000 !important;
     }
   </style>
 </head>
@@ -74,28 +79,28 @@
 <div id="app">
 
   <!-- Sidebar -->
-  <div id="sidebar" class="p-4 shadow-xl">
-    <h2 class="text-lg font-bold mb-3">📍 Stops</h2>
+  <div id="sidebar" class="shadow-xl p-4 overflow-y-auto">
+    <h2 class="text-lg font-bold mb-3 text-blue-800">📍 Stops</h2>
     <div id="stopList" class="space-y-2"></div>
 
-    <div class="mt-4 border-t pt-4">
-      <p class="text-sm font-semibold">Distance</p>
-      <p id="totalDistance">—</p>
+    <div class="mt-4 border-t pt-3">
+      <p class="text-sm font-semibold">Total Distance</p>
+      <p id="totalDistance" class="text-blue-700">—</p>
 
-      <p class="text-sm font-semibold mt-2">Time</p>
-      <p id="totalTime">—</p>
+      <p class="text-sm font-semibold mt-2">Estimated Time</p>
+      <p id="totalTime" class="text-blue-700">—</p>
     </div>
 
     <button id="navBtn"
-      class="mt-6 w-full bg-green-700 text-white py-2 rounded">
+      class="mt-4 w-full bg-green-700 text-white py-2 rounded-lg font-semibold">
       Start Navigation
     </button>
   </div>
 
   <!-- Top bar -->
-  <div class="p-2 bg-white shadow flex">
+  <div class="absolute top-4 left-4 z-[1600]">
     <button id="toggleSidebar"
-      class="px-3 py-2 bg-gray-100 rounded font-semibold">
+      class="bg-white px-4 py-2 rounded-lg shadow font-semibold">
       ☰ Stops
     </button>
   </div>
@@ -103,86 +108,171 @@
   <!-- Map -->
   <div id="map"></div>
 
-  <!-- Controls -->
-  <div id="controls">
+  <!-- Bottom controls -->
+  <div id="bottomControls">
     <input
       id="newAddress"
       type="text"
       placeholder="Enter address"
+      autocomplete="off"
       class="border px-3 py-2 rounded w-full mb-2"
     />
 
     <button id="addStop"
-      class="w-full bg-blue-700 text-white py-2 rounded mb-2">
+      class="w-full bg-blue-700 text-white py-2 rounded-lg mb-2 font-semibold">
       Add Stop
     </button>
 
     <button id="loadRoute"
-      class="w-full bg-green-700 text-white py-2 rounded">
-      Optimize Route
+      class="w-full bg-green-700 text-white py-2 rounded-lg font-semibold">
+      Load Optimized Route
     </button>
   </div>
 
 </div>
 
 <script>
+  const API_URL = "https://mm-courier-route-planner.onrender.com";
+
+  /* ---------------- MAP ---------------- */
   const map = L.map("map").setView([-26.2041, 28.0473], 12);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
   let stops = [];
   let markers = [];
+  let routeLine = null;
   let autocomplete;
 
+  /* -------- AUTOCOMPLETE (FIXED) -------- */
   function initAutocomplete() {
-    autocomplete = new google.maps.places.Autocomplete(
-      document.getElementById("newAddress")
-    );
+    const input = document.getElementById("newAddress");
+    autocomplete = new google.maps.places.Autocomplete(input, {
+      types: ["geocode"]
+    });
+
+    autocomplete.addListener("place_changed", () => {
+      // Prevent mobile freeze bug
+    });
   }
 
+  /* ------------- ADD STOP -------------- */
   document.getElementById("addStop").onclick = () => {
     const place = autocomplete.getPlace();
     if (!place || !place.geometry) {
-      alert("Select an address from the list");
+      alert("Please select an address from the list");
       return;
     }
 
     const lat = place.geometry.location.lat();
-    const lng = place.geometry.location.lng();
+    const lon = place.geometry.location.lng();
 
-    stops.push({ lat, lng });
-    markers.push(L.marker([lat, lng]).addTo(map));
-    updateStops();
+    stops.push({ lat, lon });
+    markers.push(L.marker([lat, lon]).addTo(map));
 
+    updateSidebar();
     document.getElementById("newAddress").value = "";
   };
 
-  function updateStops() {
+  /* ----------- SIDEBAR LIST ------------ */
+  function updateSidebar() {
     const list = document.getElementById("stopList");
     list.innerHTML = "";
 
     stops.forEach((s, i) => {
-      const div = document.createElement("div");
-      div.className = "border p-2 rounded flex justify-between";
-      div.innerHTML = `<span>Stop ${i + 1}</span><button>X</button>`;
+      const row = document.createElement("div");
+      row.className = "p-2 border rounded flex justify-between items-center";
+      row.innerHTML = `
+        <span class="font-semibold">Stop ${i + 1}</span>
+        <button class="text-red-600 font-bold">✕</button>
+      `;
 
-      div.onclick = () => map.setView([s.lat, s.lng], 15);
+      row.onclick = () => map.setView([s.lat, s.lon], 15);
 
-      div.querySelector("button").onclick = (e) => {
+      row.querySelector("button").onclick = (e) => {
         e.stopPropagation();
         map.removeLayer(markers[i]);
         markers.splice(i, 1);
         stops.splice(i, 1);
-        updateStops();
+        updateSidebar();
       };
 
-      list.appendChild(div);
+      list.appendChild(row);
     });
   }
 
-  document.getElementById("toggleSidebar").onclick = () => {
-    document.getElementById("sidebar").classList.toggle("visible");
-  };
-</script>
+  /* ----------- LOAD ROUTE -------------- */
+  document.getElementById("loadRoute").onclick = async () => {
+    if (stops.length < 2) {
+      alert("Add at least 2 stops");
+      return;
+    }
 
+    const res = await fetch(`${API_URL}/optimize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stops })
+    });
+
+    const data = await res.json();
+    const route = data.routes?.[0];
+    if (!route) return alert("Route not found");
+
+    const coords = decodePolyline(route.overview_polyline.points);
+
+    if (routeLine) map.removeLayer(routeLine);
+    routeLine = L.polyline(coords, { color: "blue" }).addTo(map);
+    map.fitBounds(routeLine.getBounds());
+
+    document.getElementById("totalDistance").innerText =
+      (route.legs.reduce((a,b)=>a+b.distance.value,0)/1000).toFixed(1)+" km";
+
+    document.getElementById("totalTime").innerText =
+      Math.round(route.legs.reduce((a,b)=>a+b.duration.value,0)/60)+" mins";
+  };
+
+  /* -------- START NAVIGATION ----------- */
+  document.getElementById("navBtn").onclick = () => {
+    if (stops.length < 2) return alert("Add stops first");
+
+    const o = `${stops[0].lat},${stops[0].lon}`;
+    const d = `${stops[stops.length-1].lat},${stops[stops.length-1].lon}`;
+    const w = stops.slice(1,-1).map(s=>`${s.lat},${s.lon}`).join("|");
+
+    window.open(
+      `https://www.google.com/maps/dir/?api=1&origin=${o}&destination=${d}&waypoints=${w}`,
+      "_blank"
+    );
+  };
+
+  /* -------- SIDEBAR UX FIX ------------- */
+  const sidebar = document.getElementById("sidebar");
+  const toggleBtn = document.getElementById("toggleSidebar");
+
+  toggleBtn.onclick = (e) => {
+    e.stopPropagation();
+    sidebar.classList.toggle("visible");
+  };
+
+  sidebar.onclick = (e) => e.stopPropagation();
+
+  document.addEventListener("click", () => {
+    sidebar.classList.remove("visible");
+  });
+
+  /* -------- POLYLINE DECODER ----------- */
+  function decodePolyline(str) {
+    let i=0, lat=0, lng=0, coords=[];
+    while(i<str.length){
+      let b, s=0, r=0;
+      do{b=str.charCodeAt(i++)-63;r|=(b&31)<<s;s+=5}while(b>=32);
+      lat+=((r&1)?~(r>>1):(r>>1));
+      s=0;r=0;
+      do{b=str.charCodeAt(i++)-63;r|=(b&31)<<s;s+=5}while(b>=32);
+      lng+=((r&1)?~(r>>1):(r>>1));
+      coords.push([lat/1e5,lng/1e5]);
+    }
+    return coords;
+  }
+</script>
 </body>
 </html>
