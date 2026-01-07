@@ -1,90 +1,152 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Route Planner (OSM + OSRM)</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MM Courier Route Planner</title>
 
 <!-- Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-<!-- Tailwind (dev only) -->
+<!-- Tailwind -->
 <script src="https://cdn.tailwindcss.com"></script>
 
 <style>
   body { margin:0; height:100vh; overflow:hidden; }
   #app { display:flex; flex-direction:column; height:100vh; }
-  #map { flex:1; }
-  #topbar { background:white; padding:0.5rem; z-index:600; }
-  #controls { background:white; padding:0.75rem; border-top:1px solid #e5e7eb; z-index:600; }
-  #navPanel {
-    background:#0f172a; color:white;
-    padding:0.75rem;
-    display:none;
+
+  /* Top bar */
+  #topbar {
+    height:56px;
+    background:white;
+    display:flex;
+    align-items:center;
+    padding:0 12px;
+    box-shadow:0 2px 4px rgba(0,0,0,0.1);
+    z-index:600;
   }
+
+  /* Map ONLY */
+  #map {
+    flex:1;
+    width:100%;
+  }
+
+  /* Address panel */
+  #controls {
+    background:white;
+    padding:12px;
+    border-top:1px solid #e5e7eb;
+  }
+
+  /* Action bar (buttons you couldn’t reach) */
+  #actionBar {
+    background:white;
+    padding:12px;
+    border-top:1px solid #e5e7eb;
+    display:flex;
+    gap:8px;
+  }
+
+  /* Sidebar */
+  #sidebar {
+    position:fixed;
+    top:0;
+    left:0;
+    width:280px;
+    height:100vh;
+    background:white;
+    transform:translateX(-100%);
+    transition:transform 0.3s ease;
+    z-index:1000;
+    overflow-y:auto;
+    box-shadow:2px 0 6px rgba(0,0,0,0.2);
+  }
+
+  #sidebar.visible { transform:translateX(0); }
 </style>
 </head>
 
 <body>
 <div id="app">
 
-  <!-- Top bar -->
-  <div id="topbar" class="shadow flex gap-2">
-    <button id="optimizeBtn" class="bg-green-700 text-white px-4 py-2 rounded">
-      Optimize Route
-    </button>
-    <button id="startNavBtn" class="bg-blue-700 text-white px-4 py-2 rounded">
-      Start Route
+  <!-- Sidebar -->
+  <div id="sidebar" class="p-4">
+    <h2 class="text-lg font-bold mb-3">📍 Stops</h2>
+    <div id="stopList" class="space-y-2"></div>
+  </div>
+
+  <!-- Top Bar -->
+  <div id="topbar">
+    <button id="toggleSidebar"
+      class="px-4 py-2 bg-gray-100 rounded font-semibold">
+      ☰ Stops
     </button>
   </div>
 
   <!-- Map -->
   <div id="map"></div>
 
-  <!-- Navigation Panel -->
-  <div id="navPanel">
-    <div class="text-sm opacity-80">Next instruction</div>
-    <div id="instruction" class="text-lg font-semibold">—</div>
-    <div id="instructionDistance" class="text-sm mt-1 opacity-80">—</div>
-  </div>
-
-  <!-- Controls -->
+  <!-- Address Controls -->
   <div id="controls">
-    <input id="addressInput" type="text"
+    <input id="newAddress" type="text"
       placeholder="Enter address"
       class="border px-3 py-2 rounded w-full mb-2" />
 
     <ul id="suggestions"
-      class="border rounded bg-white max-h-40 overflow-y-auto hidden mb-2"></ul>
+      class="border bg-white rounded mb-2 max-h-40 overflow-y-auto hidden"></ul>
 
-    <button id="addStopBtn"
-      class="w-full bg-gray-800 text-white py-2 rounded">
+    <button id="addStop"
+      class="w-full bg-blue-700 text-white py-2 rounded">
       Add Stop
+    </button>
+  </div>
+
+  <!-- Action Bar (FIXED & CLICKABLE) -->
+  <div id="actionBar">
+    <button id="loadRoute"
+      class="flex-1 bg-green-700 text-white py-2 rounded">
+      Optimize Route
+    </button>
+
+    <button id="startRoute"
+      class="flex-1 bg-indigo-700 text-white py-2 rounded">
+      Start Route
     </button>
   </div>
 
 </div>
 
 <script>
-/* ---------------- MAP ---------------- */
+/* ---------- MAP ---------- */
 const map = L.map("map").setView([-26.2041, 28.0473], 12);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
 let stops = [];
 let markers = [];
 let routeLine;
-let instructions = [];
-let currentStep = 0;
 
-/* ---------------- AUTOCOMPLETE (Nominatim) ---------------- */
-const input = document.getElementById("addressInput");
-const suggestions = document.getElementById("suggestions");
+/* ---------- SIDEBAR ---------- */
+const sidebar = document.getElementById("sidebar");
+document.getElementById("toggleSidebar").onclick = () =>
+  sidebar.classList.toggle("visible");
+
+document.addEventListener("click", (e) => {
+  if (!sidebar.contains(e.target) &&
+      !document.getElementById("toggleSidebar").contains(e.target)) {
+    sidebar.classList.remove("visible");
+  }
+});
+
+/* ---------- AUTOCOMPLETE ---------- */
+const input = document.getElementById("newAddress");
+const suggestionList = document.getElementById("suggestions");
 
 input.addEventListener("input", async () => {
   const q = input.value.trim();
   if (q.length < 3) {
-    suggestions.classList.add("hidden");
+    suggestionList.classList.add("hidden");
     return;
   }
 
@@ -93,7 +155,7 @@ input.addEventListener("input", async () => {
   );
   const data = await res.json();
 
-  suggestions.innerHTML = "";
+  suggestionList.innerHTML = "";
   data.forEach(item => {
     const li = document.createElement("li");
     li.className = "p-2 hover:bg-gray-100 cursor-pointer";
@@ -102,102 +164,84 @@ input.addEventListener("input", async () => {
       input.value = item.display_name;
       input.dataset.lat = item.lat;
       input.dataset.lon = item.lon;
-      suggestions.classList.add("hidden");
+      suggestionList.classList.add("hidden");
     };
-    suggestions.appendChild(li);
+    suggestionList.appendChild(li);
   });
 
-  suggestions.classList.remove("hidden");
+  suggestionList.classList.remove("hidden");
 });
 
-/* ---------------- ADD STOP ---------------- */
-document.getElementById("addStopBtn").onclick = () => {
-  if (!input.dataset.lat) {
-    alert("Select address from list");
-    return;
-  }
+/* ---------- ADD STOP ---------- */
+document.getElementById("addStop").onclick = () => {
+  if (!input.dataset.lat) return alert("Select address");
 
-  const lat = parseFloat(input.dataset.lat);
-  const lon = parseFloat(input.dataset.lon);
+  const stop = {
+    lat:+input.dataset.lat,
+    lon:+input.dataset.lon,
+    name:input.value
+  };
 
-  stops.push([lon, lat]); // OSRM uses lon,lat
-  markers.push(L.marker([lat, lon]).addTo(map));
-
-  map.setView([lat, lon], 14);
+  stops.push(stop);
+  markers.push(L.marker([stop.lat, stop.lon]).addTo(map));
+  map.setView([stop.lat, stop.lon], 14);
 
   input.value = "";
   delete input.dataset.lat;
-  delete input.dataset.lon;
+  suggestionList.classList.add("hidden");
+  updateStops();
 };
 
-/* ---------------- OPTIMIZE ROUTE ---------------- */
-document.getElementById("optimizeBtn").onclick = async () => {
-  if (stops.length < 2) {
-    alert("Add at least 2 stops");
-    return;
+/* ---------- UPDATE STOPS ---------- */
+function updateStops(){
+  const list = document.getElementById("stopList");
+  list.innerHTML = "";
+  stops.forEach((s,i)=>{
+    const div = document.createElement("div");
+    div.className="border p-2 rounded";
+    div.textContent = `${i+1}. ${s.name}`;
+    div.onclick = ()=>map.setView([s.lat,s.lon],15);
+    list.appendChild(div);
+  });
+}
+
+/* ---------- OPTIMIZE (Simple NN) ---------- */
+document.getElementById("loadRoute").onclick = () => {
+  if (stops.length < 2) return alert("Add at least 2 stops");
+
+  const ordered=[stops[0]];
+  const rest=stops.slice(1);
+
+  while(rest.length){
+    const last=ordered.at(-1);
+    let idx=0,min=dist(last,rest[0]);
+    for(let i=1;i<rest.length;i++){
+      const d=dist(last,rest[i]);
+      if(d<min){min=d;idx=i;}
+    }
+    ordered.push(rest[idx]);
+    rest.splice(idx,1);
   }
 
-  const coords = stops.map(s => s.join(",")).join(";");
-
-  // OSRM Trip API (optimization)
-  const tripUrl = `https://router.project-osrm.org/trip/v1/driving/${coords}?source=first&roundtrip=false&overview=full&geometries=geojson&steps=true`;
-  const res = await fetch(tripUrl);
-  const data = await res.json();
-
-  if (!data.trips) {
-    alert("Route optimization failed");
-    return;
-  }
-
-  const trip = data.trips[0];
-
-  if (routeLine) map.removeLayer(routeLine);
-  routeLine = L.geoJSON(trip.geometry, { color: "blue" }).addTo(map);
+  if(routeLine) map.removeLayer(routeLine);
+  routeLine=L.polyline(ordered.map(s=>[s.lat,s.lon]),{color:"blue"}).addTo(map);
   map.fitBounds(routeLine.getBounds());
 
-  // Extract instructions
-  instructions = [];
-  trip.legs.forEach(leg => {
-    leg.steps.forEach(step => {
-      instructions.push({
-        text: step.maneuver.instruction,
-        distance: Math.round(step.distance)
-      });
-    });
-  });
-
-  alert("Route optimized. Start route to navigate.");
+  stops=ordered;
+  updateStops();
 };
 
-/* ---------------- START NAVIGATION ---------------- */
-document.getElementById("startNavBtn").onclick = () => {
-  if (!instructions.length) {
-    alert("Optimize route first");
-    return;
-  }
-  currentStep = 0;
-  document.getElementById("navPanel").style.display = "block";
-  showInstruction();
-};
-
-function showInstruction() {
-  if (currentStep >= instructions.length) {
-    document.getElementById("instruction").textContent = "Route complete";
-    document.getElementById("instructionDistance").textContent = "";
-    return;
-  }
-
-  const step = instructions[currentStep];
-  document.getElementById("instruction").textContent = step.text;
-  document.getElementById("instructionDistance").textContent =
-    `In ${step.distance} meters`;
-
-  // Auto-advance simulation (real GPS comes next)
-  setTimeout(() => {
-    currentStep++;
-    showInstruction();
-  }, 4000);
+function dist(a,b){
+  const dx=(b.lon-a.lon)*Math.cos((a.lat+b.lat)/2*Math.PI/180);
+  const dy=b.lat-a.lat;
+  return Math.sqrt(dx*dx+dy*dy);
 }
+
+/* ---------- START ROUTE (in-app ready) ---------- */
+document.getElementById("startRoute").onclick = () => {
+  if (!routeLine) return alert("Optimize first");
+  alert("Next step: live in-app navigation");
+};
 </script>
 </body>
 </html>
