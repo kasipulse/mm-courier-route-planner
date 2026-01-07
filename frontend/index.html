@@ -9,21 +9,51 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-<!-- Tailwind (dev only) -->
+<!-- Tailwind -->
 <script src="https://cdn.tailwindcss.com"></script>
 
 <style>
   body { margin:0; height:100vh; overflow:hidden; }
   #app { display:flex; flex-direction:column; height:100vh; }
-  #map { flex:1; width:100%; }
-  #controls { background:white; padding:1rem; border-top:1px solid #e5e7eb; z-index:500; position:relative; }
-  #sidebar {
-    position:fixed; top:0; left:0; width:260px; height:100vh;
-    background:white; transform:translateX(-100%);
-    transition:transform 0.3s ease; z-index:1000; overflow-y:auto; box-shadow:2px 0 6px rgba(0,0,0,0.2);
+
+  /* Fixed top bar */
+  #topbar {
+    height:56px;
+    background:white;
+    box-shadow:0 2px 4px rgba(0,0,0,0.1);
+    display:flex;
+    align-items:center;
+    padding:0 12px;
+    z-index:600;
   }
+
+  #map {
+    flex:1;
+    width:100%;
+  }
+
+  #controls {
+    background:white;
+    padding:1rem;
+    border-top:1px solid #e5e7eb;
+    z-index:500;
+  }
+
+  #sidebar {
+    position:fixed;
+    top:0;
+    left:0;
+    width:280px;
+    height:100vh;
+    background:white;
+    transform:translateX(-100%);
+    transition:transform 0.3s ease;
+    z-index:1000;
+    overflow-y:auto;
+    box-shadow:2px 0 6px rgba(0,0,0,0.2);
+  }
+
   #sidebar.visible { transform:translateX(0); }
-  .pac-container { z-index:2000 !important; }
 </style>
 </head>
 
@@ -34,20 +64,23 @@
   <div id="sidebar" class="p-4">
     <h2 class="text-lg font-bold mb-3">📍 Stops</h2>
     <div id="stopList" class="space-y-2"></div>
+
     <div class="mt-4 border-t pt-4">
       <p class="text-sm font-semibold">Distance</p>
       <p id="totalDistance">—</p>
       <p class="text-sm font-semibold mt-2">Time</p>
       <p id="totalTime">—</p>
     </div>
+
     <button id="navBtn" class="mt-6 w-full bg-green-700 text-white py-2 rounded">
-      Start Navigation
+      Start Route
     </button>
   </div>
 
-  <!-- Top bar -->
-  <div class="p-2 bg-white shadow flex">
-    <button id="toggleSidebar" class="px-3 py-2 bg-gray-100 rounded font-semibold">
+  <!-- Top Bar -->
+  <div id="topbar">
+    <button id="toggleSidebar"
+      class="px-4 py-2 bg-gray-100 rounded font-semibold">
       ☰ Stops
     </button>
   </div>
@@ -57,12 +90,20 @@
 
   <!-- Controls -->
   <div id="controls">
-    <input id="newAddress" type="text" placeholder="Enter address" class="border px-3 py-2 rounded w-full mb-2" />
-    <ul id="suggestions" class="border bg-white rounded mb-2 max-h-40 overflow-y-auto hidden"></ul>
-    <button id="addStop" class="w-full bg-blue-700 text-white py-2 rounded mb-2">
+    <input id="newAddress" type="text"
+      placeholder="Enter address"
+      class="border px-3 py-2 rounded w-full mb-2" />
+
+    <ul id="suggestions"
+      class="border bg-white rounded mb-2 max-h-40 overflow-y-auto hidden"></ul>
+
+    <button id="addStop"
+      class="w-full bg-blue-700 text-white py-2 rounded mb-2">
       Add Stop
     </button>
-    <button id="loadRoute" class="w-full bg-green-700 text-white py-2 rounded">
+
+    <button id="loadRoute"
+      class="w-full bg-green-700 text-white py-2 rounded">
       Optimize Route
     </button>
   </div>
@@ -79,39 +120,38 @@ const maxStopsFree = 10;
 
 // Sidebar toggle
 const sidebar = document.getElementById("sidebar");
-document.getElementById("toggleSidebar").onclick = () => sidebar.classList.toggle("visible");
+document.getElementById("toggleSidebar").onclick = () =>
+  sidebar.classList.toggle("visible");
 
 // Close sidebar when clicking outside
 document.addEventListener("click", (e) => {
-  if (!sidebar.contains(e.target) && !document.getElementById("toggleSidebar").contains(e.target)) {
+  if (!sidebar.contains(e.target) &&
+      !document.getElementById("toggleSidebar").contains(e.target)) {
     sidebar.classList.remove("visible");
   }
 });
 
-// -----------------
-// Nominatim autocomplete
-// -----------------
+// -------- Address autocomplete (OSM) ----------
 const input = document.getElementById("newAddress");
 const suggestionList = document.getElementById("suggestions");
 
 input.addEventListener("input", async () => {
-  const query = input.value;
-  if (!query || query.length < 3) { 
-    suggestionList.innerHTML = ""; suggestionList.classList.add("hidden"); 
+  const q = input.value;
+  if (q.length < 3) {
+    suggestionList.classList.add("hidden");
     return;
   }
 
-  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&addressdetails=1&limit=5`;
-  const res = await fetch(url);
+  const res = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5`
+  );
   const data = await res.json();
 
   suggestionList.innerHTML = "";
-  data.forEach((item, idx) => {
+  data.forEach(item => {
     const li = document.createElement("li");
     li.className = "p-2 hover:bg-gray-100 cursor-pointer";
     li.textContent = item.display_name;
-    li.dataset.lat = item.lat;
-    li.dataset.lon = item.lon;
     li.onclick = () => {
       input.value = item.display_name;
       input.dataset.lat = item.lat;
@@ -120,120 +160,52 @@ input.addEventListener("input", async () => {
     };
     suggestionList.appendChild(li);
   });
+
   suggestionList.classList.remove("hidden");
 });
 
-// -----------------
-// Add stop
-// -----------------
+// -------- Add Stop ----------
 document.getElementById("addStop").onclick = () => {
-  if (!input.dataset.lat || !input.dataset.lon) {
-    alert("Select a valid address from suggestions");
-    return;
-  }
+  if (!input.dataset.lat) return alert("Select an address");
 
-  if (stops.length >= maxStopsFree) {
-    alert(`Free tier max stops: ${maxStopsFree}. Upgrade to add more.`);
-    return;
-  }
+  if (stops.length >= maxStopsFree)
+    return alert("Free tier limited to 10 stops");
 
-  const lat = parseFloat(input.dataset.lat);
-  const lon = parseFloat(input.dataset.lon);
+  const stop = {
+    lat: +input.dataset.lat,
+    lon: +input.dataset.lon,
+    name: input.value,
+    status: "pending"
+  };
 
-  stops.push({ lat, lon, name: input.value });
-  const marker = L.marker([lat, lon]).addTo(map);
-  markers.push(marker);
-  map.setView([lat, lon], 14);
+  stops.push(stop);
+  markers.push(L.marker([stop.lat, stop.lon]).addTo(map));
 
   input.value = "";
   delete input.dataset.lat;
-  delete input.dataset.lon;
-  suggestionList.innerHTML = "";
-  suggestionList.classList.add("hidden");
-
   updateStops();
 };
 
-// -----------------
-// Update sidebar stops
-// -----------------
+// -------- Sidebar Stops ----------
 function updateStops() {
   const list = document.getElementById("stopList");
   list.innerHTML = "";
+
   stops.forEach((s, i) => {
     const div = document.createElement("div");
-    div.className = "border p-2 rounded flex justify-between items-center";
-    div.innerHTML = `<span>${i+1}. ${s.name}</span><button class="text-red-600 font-bold">X</button>`;
+    div.className = "border p-2 rounded space-y-1";
 
-    div.onclick = () => map.setView([s.lat, s.lon], 14);
+    div.innerHTML = `
+      <div class="font-semibold">${i+1}. ${s.name}</div>
+      <div class="flex gap-2">
+        <button class="delivered bg-green-600 text-white px-2 py-1 rounded text-sm">Delivered</button>
+        <button class="notdelivered bg-red-600 text-white px-2 py-1 rounded text-sm">Not Delivered</button>
+      </div>
+    `;
 
-    div.querySelector("button").onclick = (e) => {
-      e.stopPropagation();
-      map.removeLayer(markers[i]);
-      markers.splice(i,1);
-      stops.splice(i,1);
-      updateStops();
+    div.querySelector(".delivered").onclick = () => {
+      s.status = "delivered";
+      div.classList.add("bg-green-50");
     };
 
-    list.appendChild(div);
-  });
-}
-
-// -----------------
-// Optimize Route (nearest neighbor for free tier)
-// -----------------
-document.getElementById("loadRoute").onclick = () => {
-  if (stops.length < 2) return alert("Add at least 2 stops");
-
-  // Simple nearest neighbor (for free tier, max 10 stops)
-  const optimized = [stops[0]];
-  const remaining = stops.slice(1);
-  while (remaining.length) {
-    const last = optimized[optimized.length - 1];
-    let nearestIdx = 0;
-    let minDist = distance(last, remaining[0]);
-    for (let i=1;i<remaining.length;i++){
-      const d = distance(last, remaining[i]);
-      if(d<minDist){ minDist=d; nearestIdx=i; }
-    }
-    optimized.push(remaining[nearestIdx]);
-    remaining.splice(nearestIdx,1);
-  }
-
-  // Draw route
-  if(window.routeLine) map.removeLayer(window.routeLine);
-  const latlngs = optimized.map(s=>[s.lat,s.lon]);
-  window.routeLine = L.polyline(latlngs,{color:"blue"}).addTo(map);
-  map.fitBounds(window.routeLine.getBounds());
-
-  // Update stops order
-  stops = optimized;
-  updateStops();
-};
-
-function distance(a,b){
-  const R = 6371; // km
-  const dLat = (b.lat-a.lat)*Math.PI/180;
-  const dLon = (b.lon-a.lon)*Math.PI/180;
-  const lat1 = a.lat*Math.PI/180;
-  const lat2 = b.lat*Math.PI/180;
-  const x = dLon * Math.cos((lat1+lat2)/2);
-  const dist = Math.sqrt(x*x + dLat*dLat)*R;
-  return dist;
-}
-
-// -----------------
-// Navigation button (optional Google Maps link)
-// -----------------
-document.getElementById("navBtn").onclick = () => {
-  if(stops.length<2){ alert("Add stops first"); return; }
-  const origin = `${stops[0].lat},${stops[0].lon}`;
-  const destination = `${stops[stops.length-1].lat},${stops[stops.length-1].lon}`;
-  const waypoints = stops.slice(1,-1).map(s=>`${s.lat},${s.lon}`).join("|");
-  const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
-  window.open(url,"_blank");
-};
-
-</script>
-</body>
-</html>
+    div.querySelector(".notdelivered
