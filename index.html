@@ -3,64 +3,33 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MM Courier Route Planner</title>
+  <title>MM Courier Route Planner (OSM + Nominatim)</title>
 
   <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-  <!-- Tailwind -->
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
 
   <style>
-    body {
-      margin: 0;
-      height: 100vh;
-      overflow: hidden;
-      font-family: sans-serif;
-    }
-
-    #app {
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-    }
-
-    #map {
-      flex: 1;
-      width: 100%;
-    }
-
-    /* Bottom panel */
-    #controls {
-      background: white;
-      padding: 1rem;
-      border-top: 1px solid #e5e7eb;
-      z-index: 500;
-    }
-
-    /* Sidebar */
+    body, html { margin:0; padding:0; height:100%; font-family:sans-serif; }
+    #map { flex:1; width:100%; height:100%; }
+    #app { display:flex; height:100vh; flex-direction:column; }
+    #controls { background:white; padding:1rem; border-top:1px solid #e5e7eb; position:relative; z-index:1000; }
     #sidebar {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 260px;
-      height: 100vh;
-      background: white;
-      transform: translateX(-100%);
-      transition: transform 0.3s ease;
-      z-index: 1000;
-      overflow-y: auto;
-      padding: 1rem;
-      box-shadow: 2px 0 6px rgba(0,0,0,0.2);
+      position:fixed; top:0; left:0; width:260px; height:100vh; background:white; 
+      transform:translateX(-100%); transition: transform 0.3s ease; z-index:1500; overflow-y:auto;
+      padding:1rem; box-shadow: 2px 0 6px rgba(0,0,0,0.2);
     }
-
-    #sidebar.visible {
-      transform: translateX(0);
+    #sidebar.visible { transform:translateX(0); }
+    #suggestions {
+      position:absolute; top:3rem; left:0; right:0; background:white; border:1px solid #ccc; max-height:200px; overflow-y:auto; z-index:2000;
     }
+    .suggestion-item { padding:0.5rem; cursor:pointer; }
+    .suggestion-item:hover { background:#e2e8f0; }
   </style>
 </head>
-
 <body>
 <div id="app">
 
@@ -77,16 +46,14 @@
       <p id="totalTime">—</p>
     </div>
 
-    <button id="navBtn"
-      class="mt-6 w-full bg-green-700 text-white py-2 rounded">
+    <button id="navBtn" class="mt-6 w-full bg-green-700 text-white py-2 rounded">
       Start Navigation
     </button>
   </div>
 
   <!-- Top bar -->
   <div class="p-2 bg-white shadow flex">
-    <button id="toggleSidebar"
-      class="px-3 py-2 bg-gray-100 rounded font-semibold">
+    <button id="toggleSidebar" class="px-3 py-2 bg-gray-100 rounded font-semibold">
       ☰ Stops
     </button>
   </div>
@@ -94,22 +61,22 @@
   <!-- Map -->
   <div id="map"></div>
 
-  <!-- Controls -->
+  <!-- Bottom Controls -->
   <div id="controls">
     <input
       id="newAddress"
       type="text"
       placeholder="Enter address"
       class="border px-3 py-2 rounded w-full mb-2"
+      autocomplete="off"
     />
+    <div id="suggestions"></div>
 
-    <button id="addStop"
-      class="w-full bg-blue-700 text-white py-2 rounded mb-2">
+    <button id="addStop" class="w-full bg-blue-700 text-white py-2 rounded mb-2">
       Add Stop
     </button>
 
-    <button id="loadRoute"
-      class="w-full bg-green-700 text-white py-2 rounded">
+    <button id="loadRoute" class="w-full bg-green-700 text-white py-2 rounded">
       Optimize Route
     </button>
   </div>
@@ -122,42 +89,74 @@
 
   let stops = [];
   let markers = [];
-  let routeLine = null;
 
-  // -------------------------
+  const input = document.getElementById("newAddress");
+  const suggestions = document.getElementById("suggestions");
+
+  // ---------------------------
   // Sidebar toggle
-  // -------------------------
+  // ---------------------------
   document.getElementById("toggleSidebar").onclick = () => {
     document.getElementById("sidebar").classList.toggle("visible");
   };
 
-  // -------------------------
-  // Address search using Nominatim
-  // -------------------------
-  async function geocodeAddress(address) {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
-    const res = await fetch(url);
-    const data = await res.json();
-    if (!data.length) return null;
-    return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-  }
+  // ---------------------------
+  // Fetch Nominatim suggestions
+  // ---------------------------
+  let debounceTimer;
+  input.addEventListener("input", () => {
+    const query = input.value.trim();
+    if (query.length < 2) {
+      suggestions.innerHTML = "";
+      return;
+    }
 
-  document.getElementById("addStop").onclick = async () => {
-    const addr = document.getElementById("newAddress").value.trim();
-    if (!addr) return alert("Enter an address");
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(async () => {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&addressdetails=1&limit=5`
+      );
+      const data = await res.json();
+      suggestions.innerHTML = "";
+      data.forEach(place => {
+        const div = document.createElement("div");
+        div.className = "suggestion-item";
+        div.textContent = place.display_name;
+        div.onclick = () => {
+          input.dataset.lat = place.lat;
+          input.dataset.lon = place.lon;
+          input.value = place.display_name;
+          suggestions.innerHTML = "";
+        };
+        suggestions.appendChild(div);
+      });
+    }, 300);
+  });
 
-    const loc = await geocodeAddress(addr);
-    if (!loc) return alert("Address not found");
+  // ---------------------------
+  // Add Stop
+  // ---------------------------
+  document.getElementById("addStop").onclick = () => {
+    const lat = input.dataset.lat;
+    const lon = input.dataset.lon;
 
-    stops.push(loc);
-    const marker = L.marker([loc.lat, loc.lon]).addTo(map);
-    markers.push(marker);
+    if (!lat || !lon) {
+      alert("Select an address from the suggestions");
+      return;
+    }
+
+    stops.push({ lat, lon });
+    markers.push(L.marker([lat, lon]).addTo(map));
     updateStops();
 
-    document.getElementById("newAddress").value = "";
-    map.setView([loc.lat, loc.lon], 14);
+    input.value = "";
+    delete input.dataset.lat;
+    delete input.dataset.lon;
   };
 
+  // ---------------------------
+  // Update sidebar stop list
+  // ---------------------------
   function updateStops() {
     const list = document.getElementById("stopList");
     list.innerHTML = "";
@@ -181,48 +180,27 @@
     });
   }
 
-  // -------------------------
-  // OSRM route optimization
-  // -------------------------
-  document.getElementById("loadRoute").onclick = async () => {
-    if (stops.length < 2) return alert("Add at least 2 stops");
-
-    const coords = stops.map(s => `${s.lon},${s.lat}`).join(";"); // lon,lat
-    const url = `https://router.project-osrm.org/trip/v1/driving/${coords}?source=first&destination=last&roundtrip=false&overview=full`;
-
-    const res = await fetch(url);
-    const data = await res.json();
-    if (!data.trips || !data.trips.length) return alert("Route not found");
-
-    const trip = data.trips[0];
-
-    const routeCoords = trip.geometry.coordinates.map(c => [c[1], c[0]]);
-
-    if (routeLine) map.removeLayer(routeLine);
-    routeLine = L.polyline(routeCoords, { color: "blue", weight: 5 }).addTo(map);
-    map.fitBounds(routeLine.getBounds());
-
-    const distanceKm = (trip.distance / 1000).toFixed(2);
-    const durationMin = Math.round(trip.duration / 60);
-
-    document.getElementById("totalDistance").innerText = distanceKm + " km";
-    document.getElementById("totalTime").innerText = durationMin + " mins";
+  // ---------------------------
+  // Load Route (placeholder)
+  // ---------------------------
+  document.getElementById("loadRoute").onclick = () => {
+    if (stops.length < 2) { alert("Add at least 2 stops."); return; }
+    alert("Route optimization will use OSRM / clustering logic (to implement)");
   };
 
-  // -------------------------
-  // Navigation (open in external map)
-  // -------------------------
+  // ---------------------------
+  // Navigation
+  // ---------------------------
   document.getElementById("navBtn").onclick = () => {
-    if (stops.length < 2) return alert("Add stops first");
+    if (stops.length < 2) { alert("Add stops first."); return; }
 
     const origin = `${stops[0].lat},${stops[0].lon}`;
-    const destination = `${stops[stops.length-1].lat},${stops[stops.length-1].lon}`;
+    const destination = `${stops[stops.length - 1].lat},${stops[stops.length - 1].lon}`;
     const waypoints = stops.slice(1, -1).map(s => `${s.lat},${s.lon}`).join("|");
 
     const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypoints}`;
     window.open(url, "_blank");
   };
 </script>
-
 </body>
 </html>
