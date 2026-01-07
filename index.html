@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MM Courier Route Planner</title>
 
 <!-- Leaflet -->
@@ -13,47 +13,52 @@
 <script src="https://cdn.tailwindcss.com"></script>
 
 <style>
-  body { margin:0; height:100vh; overflow:hidden; }
-  #app { display:flex; flex-direction:column; height:100vh; }
+body { margin:0; height:100vh; overflow:hidden; font-family: sans-serif; }
+#app { display:flex; flex-direction:column; height:100vh; }
 
-  #topbar {
-    height:56px;
-    background:white;
-    display:flex;
-    align-items:center;
-    padding:0 12px;
-    box-shadow:0 2px 4px rgba(0,0,0,0.1);
-    z-index:10;
-  }
+/* Top bar */
+#topbar {
+  height:56px;
+  background:white;
+  display:flex;
+  align-items:center;
+  padding:0 12px;
+  box-shadow:0 2px 4px rgba(0,0,0,0.1);
+  position:fixed;
+  top:0;
+  left:0;
+  right:0;
+  z-index:50;
+}
 
-  #map { flex:1; }
+/* Sidebar */
+#sidebar {
+  position:fixed;
+  top:56px; /* below top bar */
+  left:0;
+  width:300px;
+  height:calc(100vh - 56px);
+  background:white;
+  transform:translateX(-100%);
+  transition:transform 0.3s ease;
+  z-index:60;
+  overflow-y:auto;
+  box-shadow:2px 0 6px rgba(0,0,0,0.2);
+}
+#sidebar.visible { transform:translateX(0); }
 
-  #controls {
-    background:white;
-    padding:1rem;
-    border-top:1px solid #e5e7eb;
-  }
+.active-stop { border:2px solid #2563eb; background:#eff6ff; }
 
-  #sidebar {
-    position:fixed;
-    top:56px;
-    left:0;
-    width:300px;
-    height:calc(100vh - 56px);
-    background:white;
-    transform:translateX(-100%);
-    transition:transform 0.3s ease;
-    z-index:20;
-    overflow-y:auto;
-    box-shadow:2px 0 6px rgba(0,0,0,0.2);
-  }
+/* Map area */
+#map { flex:1; margin-top:56px; }
 
-  #sidebar.visible { transform:translateX(0); }
-
-  .active-stop {
-    border:2px solid #2563eb;
-    background:#eff6ff;
-  }
+/* Bottom controls */
+#controls {
+  background:white;
+  padding:1rem;
+  border-top:1px solid #e5e7eb;
+  z-index:10;
+}
 </style>
 </head>
 
@@ -69,7 +74,7 @@
 
   <!-- Top bar -->
   <div id="topbar">
-    <button id="toggleSidebar" class="px-4 py-2 bg-gray-100 rounded font-semibold">
+    <button id="toggleSidebar" class="px-4 py-2 bg-gray-100 rounded font-semibold z-50">
       ☰ Stops
     </button>
   </div>
@@ -92,8 +97,13 @@
     </button>
 
     <button id="loadRoute"
-      class="w-full bg-green-700 text-white py-2 rounded">
+      class="w-full bg-green-700 text-white py-2 rounded mb-2">
       Optimize Route
+    </button>
+
+    <button id="startRoute"
+      class="w-full bg-indigo-700 text-white py-2 rounded">
+      Start Route
     </button>
   </div>
 
@@ -108,21 +118,23 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 let stops = JSON.parse(localStorage.getItem("stops") || "[]");
 let markers = [];
 let activeIndex = 0;
+const maxStopsFree = 10;
 
 /* ---------------- SIDEBAR ---------------- */
 const sidebar = document.getElementById("sidebar");
-document.getElementById("toggleSidebar").onclick = () =>
-  sidebar.classList.toggle("visible");
+document.getElementById("toggleSidebar").onclick = () => sidebar.classList.toggle("visible");
+document.addEventListener("click", (e) => {
+  if (!sidebar.contains(e.target) && !document.getElementById("toggleSidebar").contains(e.target)) {
+    sidebar.classList.remove("visible");
+  }
+});
 
 /* ---------------- AUTOCOMPLETE (OSM) ---------------- */
 const input = document.getElementById("newAddress");
 const suggestionList = document.getElementById("suggestions");
 
 input.addEventListener("input", async () => {
-  if (input.value.length < 3) {
-    suggestionList.classList.add("hidden");
-    return;
-  }
+  if (input.value.length < 3) { suggestionList.classList.add("hidden"); return; }
 
   const res = await fetch(
     `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(input.value)}&limit=5`
@@ -148,6 +160,7 @@ input.addEventListener("input", async () => {
 /* ---------------- ADD STOP ---------------- */
 document.getElementById("addStop").onclick = () => {
   if (!input.dataset.lat) return alert("Select an address");
+  if (stops.length >= maxStopsFree) return alert(`Free tier max stops: ${maxStopsFree}`);
 
   stops.push({
     name: input.value,
@@ -167,11 +180,7 @@ document.getElementById("addStop").onclick = () => {
 function render() {
   markers.forEach(m => map.removeLayer(m));
   markers = [];
-
-  stops.forEach((s,i) => {
-    markers.push(L.marker([s.lat,s.lon]).addTo(map));
-  });
-
+  stops.forEach((s,i) => { markers.push(L.marker([s.lat,s.lon]).addTo(map)); });
   updateStopsUI();
 }
 
@@ -179,17 +188,14 @@ function render() {
 function updateStopsUI() {
   const list = document.getElementById("stopList");
   list.innerHTML = "";
-
   let completed = 0;
 
   stops.forEach((s,i) => {
-    if (s.status !== "pending") completed++;
+    if(s.status !== "pending") completed++;
 
     const div = document.createElement("div");
     div.className = "border p-2 rounded space-y-2";
-    if (i === activeIndex && s.status === "pending") {
-      div.classList.add("active-stop");
-    }
+    if(i===activeIndex && s.status==="pending") div.classList.add("active-stop");
 
     div.innerHTML = `
       <div class="font-semibold">${i+1}. ${s.name}</div>
@@ -205,24 +211,22 @@ function updateStopsUI() {
     list.appendChild(div);
   });
 
-  document.getElementById("progress").textContent =
-    `${completed} / ${stops.length} completed`;
+  document.getElementById("progress").textContent = `${completed} / ${stops.length} completed`;
 }
 
 /* ---------------- MARK STOP ---------------- */
 function markStop(index,status) {
   stops[index].status = status;
   localStorage.setItem("stops", JSON.stringify(stops));
-
   moveToNext();
   render();
 }
 
 /* ---------------- AUTO NEXT STOP ---------------- */
 function moveToNext() {
-  for (let i=0;i<stops.length;i++) {
-    if (stops[i].status === "pending") {
-      activeIndex = i;
+  for(let i=0;i<stops.length;i++){
+    if(stops[i].status==="pending"){
+      activeIndex=i;
       map.setView([stops[i].lat,stops[i].lon],15);
       return;
     }
@@ -230,42 +234,46 @@ function moveToNext() {
   alert("Route complete 🎉");
 }
 
-/* ---------------- OPTIMIZE (SIMPLE NN) ---------------- */
+/* ---------------- OPTIMIZE (NN) ---------------- */
 document.getElementById("loadRoute").onclick = () => {
-  if (stops.length < 2) return;
+  if(stops.length<2) return;
 
-  const ordered = [stops[0]];
-  const rest = stops.slice(1);
+  const ordered=[stops[0]];
+  const rest=stops.slice(1);
 
-  while (rest.length) {
-    const last = ordered.at(-1);
-    let idx = 0;
-    let best = dist(last,rest[0]);
-
-    for (let i=1;i<rest.length;i++) {
-      const d = dist(last,rest[i]);
-      if (d < best) { best = d; idx = i; }
+  while(rest.length){
+    const last=ordered.at(-1);
+    let idx=0;
+    let best=dist(last,rest[0]);
+    for(let i=1;i<rest.length;i++){
+      const d=dist(last,rest[i]);
+      if(d<best){ best=d; idx=i; }
     }
     ordered.push(rest[idx]);
     rest.splice(idx,1);
   }
 
-  stops = ordered;
-  activeIndex = 0;
+  stops=ordered;
+  activeIndex=0;
   localStorage.setItem("stops", JSON.stringify(stops));
 
-  if (window.route) map.removeLayer(window.route);
+  if(window.route) map.removeLayer(window.route);
   window.route = L.polyline(stops.map(s=>[s.lat,s.lon]),{color:"blue"}).addTo(map);
   map.fitBounds(window.route.getBounds());
-
   render();
 };
 
 function dist(a,b){
-  const dx = (b.lon-a.lon)*Math.cos((a.lat+b.lat)/2*Math.PI/180);
-  const dy = b.lat-a.lat;
+  const dx=(b.lon-a.lon)*Math.cos((a.lat+b.lat)/2*Math.PI/180);
+  const dy=b.lat-a.lat;
   return Math.sqrt(dx*dx+dy*dy);
 }
+
+/* ---------------- START ROUTE ---------------- */
+document.getElementById("startRoute").onclick = () => {
+  if(stops.length===0){ alert("No stops"); return; }
+  moveToNext();
+};
 
 /* ---------------- INIT ---------------- */
 render();
