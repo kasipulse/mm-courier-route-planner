@@ -208,4 +208,57 @@ function updateStops() {
       div.classList.add("bg-green-50");
     };
 
-    div.querySelector(".notdelivered
+    div.querySelector(".notdelivered").onclick = () => {
+      s.status = "failed";
+      div.classList.add("bg-red-50");
+    };
+
+    div.onclick = () => map.setView([s.lat, s.lon], 15);
+    list.appendChild(div);
+  });
+}
+
+// -------- Optimize Route ----------
+document.getElementById("loadRoute").onclick = () => {
+  if (stops.length < 2) return alert("Add at least 2 stops");
+
+  const optimized = [stops[0]];
+  const remaining = stops.slice(1);
+
+  while (remaining.length) {
+    const last = optimized.at(-1);
+    let idx = 0, best = dist(last, remaining[0]);
+    for (let i=1;i<remaining.length;i++){
+      const d = dist(last, remaining[i]);
+      if (d < best) { best = d; idx = i; }
+    }
+    optimized.push(remaining[idx]);
+    remaining.splice(idx,1);
+  }
+
+  if (window.route) map.removeLayer(window.route);
+  window.route = L.polyline(
+    optimized.map(s=>[s.lat,s.lon]),
+    {color:"blue"}
+  ).addTo(map);
+
+  map.fitBounds(window.route.getBounds());
+  stops = optimized;
+  updateStops();
+};
+
+function dist(a,b){
+  const dx = (b.lon-a.lon)*Math.cos((a.lat+b.lat)/2*Math.PI/180);
+  const dy = b.lat-a.lat;
+  return Math.sqrt(dx*dx+dy*dy);
+}
+
+// -------- Start Route ----------
+document.getElementById("navBtn").onclick = () => {
+  if (stops.length < 2) return alert("No route");
+  const url = `https://www.google.com/maps/dir/${stops.map(s=>`${s.lat},${s.lon}`).join("/")}`;
+  window.open(url,"_blank");
+};
+</script>
+</body>
+</html>
