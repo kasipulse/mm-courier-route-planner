@@ -5,15 +5,43 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MM Courier Route Planner</title>
 
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com"></script>
+
 <!-- Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-<!-- Tailwind -->
-<script src="https://cdn.tailwindcss.com"></script>
+<!-- Firebase AUTH GUARD -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signOut } from
+    "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+
+  // 🔒 Protect page
+  onAuthStateChanged(auth, user => {
+    if (!user) window.location.href = "/login.html";
+  });
+
+  // Logout
+  window.logout = async () => {
+    await signOut(auth);
+    window.location.href = "/login.html";
+  };
+</script>
 
 <style>
-body { margin:0; height:100vh; overflow:hidden; font-family: sans-serif; }
+body { margin:0; height:100vh; overflow:hidden; font-family:sans-serif; }
 #app { display:flex; flex-direction:column; height:100vh; }
 
 /* Top bar */
@@ -25,16 +53,14 @@ body { margin:0; height:100vh; overflow:hidden; font-family: sans-serif; }
   padding:0 12px;
   box-shadow:0 2px 4px rgba(0,0,0,0.1);
   position:fixed;
-  top:0;
-  left:0;
-  right:0;
+  top:0; left:0; right:0;
   z-index:50;
 }
 
 /* Sidebar */
 #sidebar {
   position:fixed;
-  top:56px; /* below top bar */
+  top:56px;
   left:0;
   width:300px;
   height:calc(100vh - 56px);
@@ -47,9 +73,12 @@ body { margin:0; height:100vh; overflow:hidden; font-family: sans-serif; }
 }
 #sidebar.visible { transform:translateX(0); }
 
-.active-stop { border:2px solid #2563eb; background:#eff6ff; }
+.active-stop {
+  border:2px solid #2563eb;
+  background:#eff6ff;
+}
 
-/* Map area */
+/* Map */
 #map { flex:1; margin-top:56px; }
 
 /* Bottom controls */
@@ -57,7 +86,6 @@ body { margin:0; height:100vh; overflow:hidden; font-family: sans-serif; }
   background:white;
   padding:1rem;
   border-top:1px solid #e5e7eb;
-  z-index:10;
 }
 </style>
 </head>
@@ -74,15 +102,23 @@ body { margin:0; height:100vh; overflow:hidden; font-family: sans-serif; }
 
   <!-- Top bar -->
   <div id="topbar">
-    <button id="toggleSidebar" class="px-4 py-2 bg-gray-100 rounded font-semibold z-50">
+    <button id="toggleSidebar"
+      class="px-4 py-2 bg-gray-100 rounded font-semibold">
       ☰ Stops
     </button>
+
+    <div class="ml-auto">
+      <button onclick="logout()"
+        class="px-3 py-2 bg-red-600 text-white rounded text-sm">
+        Logout
+      </button>
+    </div>
   </div>
 
   <!-- Map -->
   <div id="map"></div>
 
-  <!-- Bottom controls -->
+  <!-- Controls -->
   <div id="controls">
     <input id="newAddress" type="text"
       placeholder="Enter address"
@@ -110,38 +146,44 @@ body { margin:0; height:100vh; overflow:hidden; font-family: sans-serif; }
 </div>
 
 <script>
-/* ---------------- MAP ---------------- */
+/* ---------- MAP ---------- */
 const map = L.map("map").setView([-26.2041, 28.0473], 11);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
-/* ---------------- STATE ---------------- */
+/* ---------- STATE ---------- */
 let stops = JSON.parse(localStorage.getItem("stops") || "[]");
 let markers = [];
 let activeIndex = 0;
 const maxStopsFree = 10;
 
-/* ---------------- SIDEBAR ---------------- */
+/* ---------- SIDEBAR ---------- */
 const sidebar = document.getElementById("sidebar");
-document.getElementById("toggleSidebar").onclick = () => sidebar.classList.toggle("visible");
-document.addEventListener("click", (e) => {
-  if (!sidebar.contains(e.target) && !document.getElementById("toggleSidebar").contains(e.target)) {
+document.getElementById("toggleSidebar").onclick = () =>
+  sidebar.classList.toggle("visible");
+
+document.addEventListener("click", e => {
+  if (!sidebar.contains(e.target) &&
+      !document.getElementById("toggleSidebar").contains(e.target)) {
     sidebar.classList.remove("visible");
   }
 });
 
-/* ---------------- AUTOCOMPLETE (OSM) ---------------- */
+/* ---------- AUTOCOMPLETE ---------- */
 const input = document.getElementById("newAddress");
-const suggestionList = document.getElementById("suggestions");
+const suggestions = document.getElementById("suggestions");
 
 input.addEventListener("input", async () => {
-  if (input.value.length < 3) { suggestionList.classList.add("hidden"); return; }
+  if (input.value.length < 3) {
+    suggestions.classList.add("hidden");
+    return;
+  }
 
   const res = await fetch(
     `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(input.value)}&limit=5`
   );
   const data = await res.json();
 
-  suggestionList.innerHTML = "";
+  suggestions.innerHTML = "";
   data.forEach(item => {
     const li = document.createElement("li");
     li.className = "p-2 hover:bg-gray-100 cursor-pointer";
@@ -150,17 +192,19 @@ input.addEventListener("input", async () => {
       input.value = item.display_name;
       input.dataset.lat = item.lat;
       input.dataset.lon = item.lon;
-      suggestionList.classList.add("hidden");
+      suggestions.classList.add("hidden");
     };
-    suggestionList.appendChild(li);
+    suggestions.appendChild(li);
   });
-  suggestionList.classList.remove("hidden");
+
+  suggestions.classList.remove("hidden");
 });
 
-/* ---------------- ADD STOP ---------------- */
+/* ---------- ADD STOP ---------- */
 document.getElementById("addStop").onclick = () => {
   if (!input.dataset.lat) return alert("Select an address");
-  if (stops.length >= maxStopsFree) return alert(`Free tier max stops: ${maxStopsFree}`);
+  if (stops.length >= maxStopsFree)
+    return alert("Free tier max 10 stops");
 
   stops.push({
     name: input.value,
@@ -176,26 +220,31 @@ document.getElementById("addStop").onclick = () => {
   render();
 };
 
-/* ---------------- RENDER ---------------- */
+/* ---------- RENDER ---------- */
 function render() {
   markers.forEach(m => map.removeLayer(m));
   markers = [];
-  stops.forEach((s,i) => { markers.push(L.marker([s.lat,s.lon]).addTo(map)); });
+
+  stops.forEach(s => {
+    markers.push(L.marker([s.lat, s.lon]).addTo(map));
+  });
+
   updateStopsUI();
 }
 
-/* ---------------- STOPS UI ---------------- */
+/* ---------- STOPS UI ---------- */
 function updateStopsUI() {
   const list = document.getElementById("stopList");
   list.innerHTML = "";
   let completed = 0;
 
   stops.forEach((s,i) => {
-    if(s.status !== "pending") completed++;
+    if (s.status !== "pending") completed++;
 
     const div = document.createElement("div");
     div.className = "border p-2 rounded space-y-2";
-    if(i===activeIndex && s.status==="pending") div.classList.add("active-stop");
+    if (i === activeIndex && s.status === "pending")
+      div.classList.add("active-stop");
 
     div.innerHTML = `
       <div class="font-semibold">${i+1}. ${s.name}</div>
@@ -211,10 +260,11 @@ function updateStopsUI() {
     list.appendChild(div);
   });
 
-  document.getElementById("progress").textContent = `${completed} / ${stops.length} completed`;
+  document.getElementById("progress").textContent =
+    `${completed} / ${stops.length} completed`;
 }
 
-/* ---------------- MARK STOP ---------------- */
+/* ---------- MARK STOP ---------- */
 function markStop(index,status) {
   stops[index].status = status;
   localStorage.setItem("stops", JSON.stringify(stops));
@@ -222,11 +272,11 @@ function markStop(index,status) {
   render();
 }
 
-/* ---------------- AUTO NEXT STOP ---------------- */
+/* ---------- AUTO NEXT ---------- */
 function moveToNext() {
-  for(let i=0;i<stops.length;i++){
-    if(stops[i].status==="pending"){
-      activeIndex=i;
+  for (let i=0;i<stops.length;i++) {
+    if (stops[i].status === "pending") {
+      activeIndex = i;
       map.setView([stops[i].lat,stops[i].lon],15);
       return;
     }
@@ -234,17 +284,16 @@ function moveToNext() {
   alert("Route complete 🎉");
 }
 
-/* ---------------- OPTIMIZE (NN) ---------------- */
+/* ---------- OPTIMIZE ---------- */
 document.getElementById("loadRoute").onclick = () => {
-  if(stops.length<2) return;
+  if (stops.length < 2) return;
 
   const ordered=[stops[0]];
   const rest=stops.slice(1);
 
   while(rest.length){
     const last=ordered.at(-1);
-    let idx=0;
-    let best=dist(last,rest[0]);
+    let idx=0, best=dist(last,rest[0]);
     for(let i=1;i<rest.length;i++){
       const d=dist(last,rest[i]);
       if(d<best){ best=d; idx=i; }
@@ -258,7 +307,7 @@ document.getElementById("loadRoute").onclick = () => {
   localStorage.setItem("stops", JSON.stringify(stops));
 
   if(window.route) map.removeLayer(window.route);
-  window.route = L.polyline(stops.map(s=>[s.lat,s.lon]),{color:"blue"}).addTo(map);
+  window.route=L.polyline(stops.map(s=>[s.lat,s.lon]),{color:"blue"}).addTo(map);
   map.fitBounds(window.route.getBounds());
   render();
 };
@@ -269,13 +318,13 @@ function dist(a,b){
   return Math.sqrt(dx*dx+dy*dy);
 }
 
-/* ---------------- START ROUTE ---------------- */
+/* ---------- START ROUTE ---------- */
 document.getElementById("startRoute").onclick = () => {
-  if(stops.length===0){ alert("No stops"); return; }
+  if (!stops.length) return alert("No stops");
   moveToNext();
 };
 
-/* ---------------- INIT ---------------- */
+/* ---------- INIT ---------- */
 render();
 </script>
 </body>
