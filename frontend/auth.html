@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Route Planner | Login</title>
+
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Firebase -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+  import {
+    getAuth,
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+    onAuthStateChanged
+  } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+  // 🔴 REPLACE WITH YOUR FIREBASE CONFIG
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    appId: "YOUR_APP_ID"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+
+  // Redirect if logged in
+  onAuthStateChanged(auth, user => {
+    if (user) {
+      window.location.href = "/app.html"; // route planner
+    }
+  });
+
+  window.authActions = {
+    signup: async (email, password) => {
+      await createUserWithEmailAndPassword(auth, email, password);
+    },
+    login: async (email, password) => {
+      await signInWithEmailAndPassword(auth, email, password);
+    }
+  };
+</script>
+
+<style>
+  body { background:#f8fafc; }
+</style>
+</head>
+
+<body class="min-h-screen flex items-center justify-center px-4">
+
+<div class="w-full max-w-md bg-white rounded-xl shadow-lg p-6">
+
+  <h1 class="text-2xl font-bold text-center mb-2">Route Planner</h1>
+  <p class="text-center text-sm text-gray-500 mb-6">
+    Optimize deliveries. Save fuel.
+  </p>
+
+  <!-- Toggle -->
+  <div class="flex mb-6 border rounded-lg overflow-hidden">
+    <button id="loginTab" class="flex-1 py-2 font-semibold bg-blue-600 text-white">
+      Login
+    </button>
+    <button id="signupTab" class="flex-1 py-2 font-semibold bg-gray-100 text-gray-700">
+      Create Account
+    </button>
+  </div>
+
+  <!-- Form -->
+  <form id="authForm" class="space-y-4">
+    <div>
+      <label class="text-sm font-medium text-gray-600">Email</label>
+      <input id="email" type="email" required
+        class="w-full border px-3 py-2 rounded focus:ring-2 focus:ring-blue-500" />
+    </div>
+
+    <div>
+      <label class="text-sm font-medium text-gray-600">Password</label>
+      <input id="password" type="password" required
+        class="w-full border px-3 py-2 rounded focus:ring-2 focus:ring-blue-500" />
+    </div>
+
+    <button type="submit"
+      class="w-full bg-blue-600 text-white py-2 rounded font-semibold hover:bg-blue-700">
+      Login
+    </button>
+  </form>
+
+  <p id="error" class="text-red-600 text-sm mt-4 hidden"></p>
+
+  <p class="text-xs text-gray-500 mt-6 text-center">
+    Free tier: up to 10 stops per route
+  </p>
+</div>
+
+<script>
+let mode = "login";
+
+const loginTab = document.getElementById("loginTab");
+const signupTab = document.getElementById("signupTab");
+const form = document.getElementById("authForm");
+const errorBox = document.getElementById("error");
+const submitBtn = form.querySelector("button");
+
+loginTab.onclick = () => setMode("login");
+signupTab.onclick = () => setMode("signup");
+
+function setMode(m){
+  mode = m;
+  if(m === "login"){
+    loginTab.className = "flex-1 py-2 font-semibold bg-blue-600 text-white";
+    signupTab.className = "flex-1 py-2 font-semibold bg-gray-100 text-gray-700";
+    submitBtn.textContent = "Login";
+  } else {
+    signupTab.className = "flex-1 py-2 font-semibold bg-blue-600 text-white";
+    loginTab.className = "flex-1 py-2 font-semibold bg-gray-100 text-gray-700";
+    submitBtn.textContent = "Create Account";
+  }
+}
+
+form.onsubmit = async (e) => {
+  e.preventDefault();
+  errorBox.classList.add("hidden");
+
+  const email = document.getElementById("email").value;
+  const password = document.getElementById("password").value;
+
+  try {
+    if (mode === "login") {
+      await window.authActions.login(email, password);
+    } else {
+      await window.authActions.signup(email, password);
+    }
+  } catch (err) {
+    errorBox.textContent = err.message;
+    errorBox.classList.remove("hidden");
+  }
+};
+</script>
+
+</body>
+</html>
